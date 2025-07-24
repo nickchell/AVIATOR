@@ -3,10 +3,22 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Minus, Plus, Plane, Timer } from 'lucide-react';
+import { Minus, Plus, Timer } from 'lucide-react';
 import crashMultipliers from '@/data/crashMultipliers';
+import { supabase } from './lib/supabaseClient';
 
 type GamePhase = 'betting' | 'flying' | 'crashed';
+
+interface AppProps {
+  user: {
+    id: string;
+    phone: string;
+    pin: string;
+    balance: number;
+    [key: string]: any;
+  };
+  setUser: (user: any) => void;
+}
 
 interface Bet {
   id: string;
@@ -55,11 +67,22 @@ const INITIAL_PREVIOUS_MULTIPLIERS: PreviousMultiplier[] = [
   { value: 6.71, color: 'text-purple-400' },
 ];
 
-function App() {
+function App({ user, setUser }: AppProps) {
   const [gamePhase, setGamePhase] = useState<GamePhase>('betting');
   const [countdown, setCountdown] = useState<number>(BETTING_PHASE_DURATION);
   const [currentMultiplier, setCurrentMultiplier] = useState<number>(1.00);
-  const [balance, setBalance] = useState<number>(50000);
+  // Always use user.balance from props. No local balance state.
+
+  // Update balance in Supabase and refetch user
+  const updateBalance = async (newBalance: number) => {
+    const { error } = await supabase.from('users').update({ balance: newBalance }).eq('id', user.id);
+    if (!error) {
+      const { data: freshUser } = await supabase.from('users').select('*').eq('id', user.id).single();
+      if (freshUser) setUser(freshUser);
+    } else {
+      console.error('Supabase update error:', error);
+    }
+  };
   const [betAmount, setBetAmount] = useState<number>(100);
   const [userBet, setUserBet] = useState<Bet | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
@@ -73,6 +96,10 @@ function App() {
   const betCountTickRef = useRef<number>(0);
   const [showCrashUI, setShowCrashUI] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [showDeposit, setShowDeposit] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('');
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
 
   // Add audio refs for flying and crash sounds
   const flyingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -292,7 +319,7 @@ function App() {
           
           // Update user balance if it's their bet
           if (bet.isUserBet) {
-            setBalance(prev => prev + winAmount);
+            updateBalance(user.balance + winAmount);
           }
           
           return {
@@ -390,20 +417,20 @@ function App() {
 
   const handleBetAmountChange = (value: string) => {
     const numValue = parseInt(value) || 0;
-    setBetAmount(Math.max(0, Math.min(numValue, balance)));
+    setBetAmount(Math.max(0, Math.min(numValue, user.balance)));
   };
 
   const adjustBetAmount = (delta: number) => {
-    setBetAmount(prev => Math.max(1, Math.min(prev + delta, balance)));
+    setBetAmount(prev => Math.max(1, Math.min(prev + delta, user.balance)));
   };
 
   const handlePresetAmount = (amount: number) => {
-    setBetAmount(Math.min(amount, balance));
+    setBetAmount(Math.min(amount, user.balance));
   };
 
   const handlePlaceBet = () => {
-    if (gamePhase === 'betting' && betAmount <= balance && betAmount >= 1) {
-      setBalance(prev => prev - betAmount);
+    if (gamePhase === 'betting' && betAmount <= user.balance && betAmount >= 1) {
+      updateBalance(user.balance - betAmount);
       
       const newBet: Bet = {
         id: `user-${Date.now()}`,
@@ -419,7 +446,7 @@ function App() {
   const handleCashOut = () => {
     if (gamePhase === 'flying' && userBet && !userBet.cashedOut) {
       const winAmount = Math.floor(userBet.amount * currentMultiplier);
-      setBalance(prev => prev + winAmount);
+      updateBalance(user.balance + winAmount);
       
       const cashedOutBet = {
         ...userBet,
@@ -495,8 +522,13 @@ function App() {
     }
   };
 
-  const canPlaceBet = gamePhase === 'betting' && betAmount <= balance && betAmount >= 1 && !userBet;
+  const canPlaceBet = gamePhase === 'betting' && betAmount <= user.balance && betAmount >= 1 && !userBet;
   const canCashOut = gamePhase === 'flying' && userBet && !userBet.cashedOut;
+
+  // Logout handler
+  const handleLogout = () => {
+    setUser(null);
+  };
 
   return (
     <>
@@ -506,7 +538,9 @@ function App() {
           to { width: 0%; }
         }
       `}</style>
-      <div className="min-h-screen bg-zinc-950 text-white">
+      <div className="min-h-screen bg-zinc-950 text-white relative">
+        {/* Hamburger Menu */}
+        <HamburgerMenu onLogout={handleLogout} />
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-center justify-between p-2 sm:p-4 border-b border-zinc-800 gap-2 sm:gap-0">
           <div className="flex items-center space-x-2 sm:space-x-4">
@@ -515,8 +549,30 @@ function App() {
               Round #{roundNumber}
             </div>
           </div>
-          <div className="text-green-400 font-semibold text-base sm:text-lg">
-            {balance.toFixed(2)} KES
+          <div className="flex items-center gap-1 mr-10 sm:mr-16">
+            {/* Deposit button to the left */}
+            <button
+              className="flex items-center justify-center bg-green-500 hover:bg-green-600 text-white font-bold rounded-full w-7 h-7 shadow border border-green-700 transition"
+              title="Deposit"
+              onClick={() => setShowDeposit(true)}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+            {/* Cool balance display */}
+            <button
+              className="flex items-center bg-gradient-to-r from-green-700 via-green-500 to-yellow-400 px-2 py-0.5 rounded-full shadow text-black font-bold text-sm sm:text-base border border-green-800 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition hover:brightness-105"
+              title="Withdraw"
+              onClick={() => setShowWithdraw(true)}
+              style={{ minWidth: 0 }}
+            >
+              <span className="mr-1 flex items-center">
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="text-yellow-300 mr-0.5">
+                  <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                  <text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fde68a" fontWeight="400">KES</text>
+                </svg>
+                {user.balance.toFixed(2)}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -674,7 +730,7 @@ function App() {
                           onChange={(e) => handleBetAmountChange(e.target.value)}
                           className="bg-zinc-800 border-zinc-700 text-center text-base sm:text-lg font-semibold"
                           min="1"
-                          max={balance}
+                          max={user.balance}
                           disabled={gamePhase !== 'betting'}
                         />
                       </div>
@@ -683,7 +739,7 @@ function App() {
                         size="sm"
                         onClick={() => adjustBetAmount(10)}
                         className="bg-zinc-800 border-zinc-700 hover:bg-zinc-700"
-                        disabled={betAmount >= balance || gamePhase !== 'betting'}
+                        disabled={betAmount >= user.balance || gamePhase !== 'betting'}
                       >
                         <Plus className="w-4 h-4" />
                       </Button>
@@ -700,7 +756,7 @@ function App() {
                           size="sm"
                           onClick={() => handlePresetAmount(amount)}
                           className="bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-xs sm:text-sm"
-                          disabled={amount > balance || gamePhase !== 'betting'}
+                          disabled={amount > user.balance || gamePhase !== 'betting'}
                         >
                           {amount.toLocaleString()}
                         </Button>
@@ -749,7 +805,7 @@ function App() {
                        'Calculating results...'}
                     </div>
                     <div className="text-xs text-zinc-500">
-                      Balance: {balance.toFixed(2)} KES
+                      Balance: {user.balance.toFixed(2)} KES
                     </div>
                   </div>
                 </div>
@@ -758,7 +814,113 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Deposit Modal/Page */}
+      {showDeposit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
+          <div className="bg-zinc-900 rounded-2xl shadow-xl p-6 w-full max-w-xs mx-2 relative">
+            <button className="absolute top-2 right-2 text-zinc-400 hover:text-red-400 text-xl" onClick={() => setShowDeposit(false)}>&times;</button>
+            <h2 className="text-xl font-bold mb-4 text-green-400 text-center">Deposit Funds</h2>
+            <div className="mb-3 flex flex-wrap gap-2 justify-center">
+              {[50, 100, 200, 500, 1000].map((amt) => (
+                <button
+                  key={amt}
+                  className="bg-green-700 hover:bg-green-600 text-white font-semibold rounded-full px-4 py-2 text-sm shadow border border-green-800"
+                  onClick={() => setDepositAmount(amt.toString())}
+                >
+                  {amt} KES
+                </button>
+              ))}
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm mb-1 text-zinc-300">Amount</label>
+              <input
+                type="number"
+                className="w-full px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-green-400"
+                placeholder="Enter amount"
+                value={depositAmount}
+                onChange={e => setDepositAmount(e.target.value)}
+                min={1}
+              />
+            </div>
+            <button
+              className="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-2 rounded-full text-lg transition disabled:opacity-60"
+              // onClick={handleDeposit} // Add deposit logic here
+              disabled={!depositAmount || Number(depositAmount) < 1}
+            >
+              Deposit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Withdraw Modal/Page */}
+      {showWithdraw && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
+          <div className="bg-zinc-900 rounded-2xl shadow-xl p-6 w-full max-w-xs mx-2 relative">
+            <button className="absolute top-2 right-2 text-zinc-400 hover:text-red-400 text-xl" onClick={() => setShowWithdraw(false)}>&times;</button>
+            <h2 className="text-xl font-bold mb-4 text-yellow-400 text-center">Withdraw Funds</h2>
+            <div className="mb-3 flex flex-wrap gap-2 justify-center">
+              {[500, 1000, 2000, 5000, 10000].map((amt) => (
+                <button
+                  key={amt}
+                  className="bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-full px-4 py-2 text-sm shadow border border-yellow-600"
+                  onClick={() => setWithdrawAmount(amt.toString())}
+                >
+                  {amt} KES
+                </button>
+              ))}
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm mb-1 text-zinc-300">Amount</label>
+              <input
+                type="number"
+                className="w-full px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                placeholder="Enter amount (min 500)"
+                value={withdrawAmount}
+                onChange={e => setWithdrawAmount(e.target.value)}
+                min={500}
+                max={user.balance}
+              />
+            </div>
+            <button
+              className="w-full bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 rounded-full text-lg transition disabled:opacity-60"
+              // onClick={handleWithdraw} // Add withdraw logic here
+              disabled={!withdrawAmount || Number(withdrawAmount) < 500 || Number(withdrawAmount) > user.balance}
+            >
+              Withdraw
+            </button>
+          </div>
+        </div>
+      )}
     </>
+  );
+}
+
+// HamburgerMenu component
+function HamburgerMenu({ onLogout }: { onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="absolute top-4 right-4 z-50">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+        aria-label="Menu"
+      >
+        <span className="text-2xl text-white">&#8942;</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg py-2">
+          <button
+            onClick={() => { setOpen(false); onLogout(); }}
+            className="w-full flex items-center gap-2 px-4 py-2 text-red-500 hover:bg-red-600 hover:text-white font-semibold rounded transition focus:outline-none focus:ring-2 focus:ring-red-400"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1" /></svg>
+            Logout
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

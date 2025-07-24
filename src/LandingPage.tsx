@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient';
 
 type LandingPageProps = {
-  onPlayNow: () => void;
+  onPlayNow: (user: any) => void;
 };
 
 const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
@@ -13,10 +13,28 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
   const [agreedAge, setAgreedAge] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
 
   const handlePlayNowClick = () => {
     setShowModal(true);
   };
+
+  // Check if phone is registered when 10 digits are entered
+  useEffect(() => {
+    const checkRegistered = async () => {
+      if (phone.length === 10 && /^07\d{8}$/.test(phone)) {
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('id')
+          .eq('phone', phone)
+          .single();
+        setIsRegistered(!!existingUser);
+      } else {
+        setIsRegistered(null);
+      }
+    };
+    checkRegistered();
+  }, [phone]);
 
   const handleContinue = async () => {
     if (!/^07\d{8}$/.test(phone)) {
@@ -27,24 +45,50 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
       setError('Please enter a valid 4-6 digit PIN');
       return;
     }
-    if (!agreedTerms) {
-      setError('You must agree to the terms and conditions');
-      return;
-    }
-    if (!agreedAge) {
-      setError('You must confirm you are over 18');
-      return;
-    }
     setError('');
     setLoading(true);
-    const { error: supabaseError } = await supabase.from('users').insert([{ phone, pin }]);
-    setLoading(false);
-    if (supabaseError) {
-      setError('Failed to register. Please try again.');
+    if (isRegistered) {
+      // Login mode
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('*')
+        .eq('phone', phone)
+        .single();
+      if (!existingUser || existingUser.pin !== pin) {
+        setLoading(false);
+        setError('Incorrect PIN.');
+        return;
+      }
+      setLoading(false);
+      setShowModal(false);
+      onPlayNow(existingUser);
       return;
+    } else {
+      // Registration mode
+      if (!agreedTerms) {
+        setLoading(false);
+        setError('You must agree to the terms and conditions');
+        return;
+      }
+      if (!agreedAge) {
+        setLoading(false);
+        setError('You must confirm you are over 18');
+        return;
+      }
+      const { data: newUser, error: insertError } = await supabase
+        .from('users')
+        .insert([{ phone, pin, balance: 50 }])
+        .select()
+        .single();
+      if (insertError) {
+        setLoading(false);
+        setError('Failed to register. Please try again.');
+        return;
+      }
+      setLoading(false);
+      setShowModal(false);
+      onPlayNow(newUser);
     }
-    setShowModal(false);
-    onPlayNow();
   };
 
   return (
@@ -130,31 +174,38 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
                 maxLength={6}
               />
             </div>
-            <div className="mb-2 flex items-center">
-              <input
-                type="checkbox"
-                id="terms"
-                checked={agreedTerms}
-                onChange={e => setAgreedTerms(e.target.checked)}
-                className="mr-2 accent-yellow-400"
-              />
-              <label htmlFor="terms" className="text-xs text-zinc-300">I agree to the <a href="#" className="underline text-yellow-400">terms and conditions</a></label>
-            </div>
-            <div className="mb-4 flex items-center">
-              <input
-                type="checkbox"
-                id="age"
-                checked={agreedAge}
-                onChange={e => setAgreedAge(e.target.checked)}
-                className="mr-2 accent-yellow-400"
-              />
-              <label htmlFor="age" className="text-xs text-zinc-300">I confirm I am over 18 years old</label>
-            </div>
+            {isRegistered === true && (
+              <div className="mb-4 text-green-400 text-center text-sm font-semibold">You’re already registered! Please enter your PIN to log in.</div>
+            )}
+            {isRegistered !== true && (
+              <>
+                <div className="mb-2 flex items-center">
+                  <input
+                    type="checkbox"
+                    id="terms"
+                    checked={agreedTerms}
+                    onChange={e => setAgreedTerms(e.target.checked)}
+                    className="mr-2 accent-yellow-400"
+                  />
+                  <label htmlFor="terms" className="text-xs text-zinc-300">I agree to the <a href="#" className="underline text-yellow-400">terms and conditions</a></label>
+                </div>
+                <div className="mb-4 flex items-center">
+                  <input
+                    type="checkbox"
+                    id="age"
+                    checked={agreedAge}
+                    onChange={e => setAgreedAge(e.target.checked)}
+                    className="mr-2 accent-yellow-400"
+                  />
+                  <label htmlFor="age" className="text-xs text-zinc-300">I confirm I am over 18 years old</label>
+                </div>
+              </>
+            )}
             {error && <div className="text-red-400 text-xs mb-2 text-center">{error}</div>}
             <button
               className="w-full bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 rounded-full text-lg transition disabled:opacity-60 flex items-center justify-center gap-2"
               onClick={handleContinue}
-              disabled={loading || !(phone && pin && agreedTerms && agreedAge)}
+              disabled={loading || !(phone && pin && (isRegistered === true || (agreedTerms && agreedAge)))}
             >
               {loading && <span className="loader border-2 border-t-2 border-yellow-600 border-t-transparent rounded-full w-4 h-4 animate-spin"></span>}
               Continue
