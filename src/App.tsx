@@ -4,8 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Minus, Plus, Timer } from 'lucide-react';
-import crashMultipliers from '@/data/crashMultipliers';
 import { supabase } from './lib/supabaseClient';
+import { generateCrashMultiplier } from './data/crashMultipliers';
+import { useToast } from '@/hooks/use-toast';
+import { Toaster } from '@/components/ui/toaster';
+import { v4 as uuidv4 } from 'uuid';
 
 type GamePhase = 'betting' | 'flying' | 'crashed';
 
@@ -36,7 +39,8 @@ interface PreviousMultiplier {
   color: string;
 }
 
-const PRESET_AMOUNTS = [100, 200, 500, 20000];
+// Update preset amounts
+const PRESET_AMOUNTS = [100, 200, 500, 1000];
 const BETTING_PHASE_DURATION = 6; // seconds
 
 // Mock player IDs (no avatars)
@@ -67,6 +71,20 @@ const INITIAL_PREVIOUS_MULTIPLIERS: PreviousMultiplier[] = [
   { value: 6.71, color: 'text-purple-400' },
 ];
 
+// Utility to persist round state
+function saveRoundState(state: any) {
+  localStorage.setItem('aviator_round_state', JSON.stringify(state));
+}
+function loadRoundState() {
+  const raw = localStorage.getItem('aviator_round_state');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 function App({ user, setUser }: AppProps) {
   const [gamePhase, setGamePhase] = useState<GamePhase>('betting');
   const [countdown, setCountdown] = useState<number>(BETTING_PHASE_DURATION);
@@ -83,11 +101,11 @@ function App({ user, setUser }: AppProps) {
       console.error('Supabase update error:', error);
     }
   };
-  const [betAmount, setBetAmount] = useState<number>(100);
+  // Set default bet amount to 10
+  const [betAmount, setBetAmount] = useState<number>(10);
   const [userBet, setUserBet] = useState<Bet | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
   const [previousMultipliers, setPreviousMultipliers] = useState<PreviousMultiplier[]>(INITIAL_PREVIOUS_MULTIPLIERS);
-  const [multiplierIndex, setMultiplierIndex] = useState<number>(0);
   const [totalBets, setTotalBets] = useState<number>(0);
   const [displayedBetCount, setDisplayedBetCount] = useState<number>(0);
   const [progress, setProgress] = useState(0);
@@ -99,6 +117,14 @@ function App({ user, setUser }: AppProps) {
   const [depositAmount, setDepositAmount] = useState('');
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [crashPoint, setCrashPoint] = useState<number | null>(null);
+  // Add state for queued bet
+  const [queuedBetAmount, setQueuedBetAmount] = useState<number|null>(null);
+  // Add state for pending bet during betting phase
+  const [pendingBetAmount, setPendingBetAmount] = useState<number|null>(null);
+  const { toast } = useToast();
+  // Track previous gamePhase to prevent unwanted multiplier reset
+  // Remove the unused prevGamePhase variable
 
   // Add audio refs for flying and crash sounds
   const flyingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -151,39 +177,84 @@ function App({ user, setUser }: AppProps) {
   }, [audioEnabled]);
 
   // Generate mock bets for other players
-  const generateMockBets = useCallback((): { bets: Bet[], totalBets: number } => {
+  const generateMockBets = useCallback((crashPointForRound: number | null): { bets: Bet[], totalBets: number } => {
     const totalBets = Math.floor(Math.random() * 2501) + 500;
     const numDisplayBets = 50;
+    // Step 1: Generate unique multipliers as much as possible
+    const uniqueMultipliers = new Set<number>();
+    while (uniqueMultipliers.size < numDisplayBets) {
+      let cashout: number;
+      if (crashPointForRound) {
+        cashout = getRandomCashout(crashPointForRound);
+      } else {
+        cashout = +(Math.random() * 4 + 1.1 + Math.random() * 0.01).toFixed(2);
+      }
+      uniqueMultipliers.add(cashout);
+      if (uniqueMultipliers.size >= numDisplayBets) break;
+    }
+    const multipliersArr = Array.from(uniqueMultipliers);
+    // Step 2: Generate bets and assign multipliers
     const mockBets: Bet[] = [];
     for (let i = 0; i < numDisplayBets; i++) {
       const playerId = MOCK_PLAYERS[Math.floor(Math.random() * MOCK_PLAYERS.length)];
-      const amount = Math.floor(Math.random() * 991) + 10; // 10 - 1000
-      let cashoutMultiplier: number;
-      if (i < numDisplayBets * 0.2) {
-        // Early: 1.1–1.3x
-        cashoutMultiplier = +(Math.random() * 0.2 + 1.1).toFixed(2);
-      } else if (i < numDisplayBets * 0.6) {
-        // Medium: 1.3–2x
-        cashoutMultiplier = +(Math.random() * 0.7 + 1.3).toFixed(2);
-      } else {
-        // Greedy: 2–5x
-        cashoutMultiplier = +(Math.random() * 3 + 2).toFixed(2);
-      }
+      const amount = getWeightedBetAmount();
+      const cashoutMultiplier = multipliersArr[i % multipliersArr.length];
       mockBets.push({
-        id: `mock-${i}-${Date.now()}`,
+        id: `mock-${i}-${Date.now()}-${Math.floor(Math.random()*100000)}`,
         playerId,
         amount,
         cashoutMultiplier,
         isUserBet: false,
       });
     }
-    // Shuffle the bets for randomness
+    // Step 3: Shuffle the bets to avoid adjacent duplicates
     for (let i = mockBets.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [mockBets[i], mockBets[j]] = [mockBets[j], mockBets[i]];
     }
+    // Step 4: If any adjacent duplicates, swap with a random other bet
+    for (let i = 1; i < mockBets.length; i++) {
+      if (mockBets[i].cashoutMultiplier === mockBets[i-1].cashoutMultiplier) {
+        const swapWith = (i+1) % mockBets.length;
+        [mockBets[i], mockBets[swapWith]] = [mockBets[swapWith], mockBets[i]];
+      }
+    }
     return { bets: mockBets, totalBets };
   }, []);
+
+  // Helper for weighted random bet amounts
+  function getWeightedBetAmount() {
+    // Realistic psychological numbers, max 5000, 300+ rare
+    const pool = [10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000];
+    // More small/medium, very few large (300+)
+    const weights = [30, 20, 12, 10, 12, 10, 15, 8, 10, 7, 3, 2, 2, 1, 1, 0.7, 0.5, 0.3, 0.2, 0.1, 0.05];
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    if (Math.random() < 0.9) {
+      let r = Math.random() * totalWeight;
+      for (let i = 0; i < pool.length; i++) {
+        if (r < weights[i]) return pool[i];
+        r -= weights[i];
+      }
+      return 10;
+    } else {
+      // 10%: pick a random odd number between 300 and 5000 not in the pool
+      let n;
+      do {
+        n = Math.floor(Math.random() * 4701) + 300;
+      } while (pool.includes(n));
+      return n;
+    }
+  }
+
+  // Helper for random cashout multiplier (some above crashPoint)
+  function getRandomCashout(crashPoint: number) {
+    // 70% cash out before crash, 30% after (lose)
+    if (Math.random() < 0.7) {
+      return +(Math.random() * (crashPoint - 1.01) + 1.01 + Math.random() * 0.01).toFixed(2);
+    } else {
+      return +(Math.random() * (500 - crashPoint) + crashPoint + 0.01 + Math.random() * 0.01).toFixed(2);
+    }
+  }
 
   // Handle betting phase countdown
   useEffect(() => {
@@ -198,7 +269,7 @@ function App({ user, setUser }: AppProps) {
       setCurrentMultiplier(1.00);
       
       // Generate mock bets for this round
-      const { bets: mockBets, totalBets } = generateMockBets();
+      const { bets: mockBets, totalBets } = generateMockBets(null);
       setBets(_prev => {
         const allBets = [...mockBets];
         if (userBet) {
@@ -210,48 +281,14 @@ function App({ user, setUser }: AppProps) {
     }
   }, [gamePhase, countdown, generateMockBets, userBet]);
 
-  // Handle flying phase multiplier updates
+  // When entering the flying phase, generate and set a new crashPoint and generate mock bets ONCE
   useEffect(() => {
     if (gamePhase === 'flying') {
-      const crashPoint = crashMultipliers[multiplierIndex % crashMultipliers.length];
-      setCurrentMultiplier(prev => {
-        const increment = Math.random() * 0.025 + 0.005;
-        const newValue = prev + increment;
-
-        // Update mock bets for cashout
-        setBets(prevBets => prevBets.map(bet => {
-          if (bet.isUserBet || bet.cashedOut !== undefined) return bet;
-          if (newValue >= (bet.cashoutMultiplier || 0) && (bet.cashoutMultiplier || 0) <= crashPoint && newValue < crashPoint) {
-            // Cashed out before crash
-            return {
-              ...bet,
-              cashedOut: true,
-              multiplier: bet.cashoutMultiplier,
-              winAmount: Math.floor(bet.amount * (bet.cashoutMultiplier || 1)),
-            };
-          }
-          return bet;
-        }));
-
-        // Check if we should crash
-        if (newValue >= crashPoint) {
-          if (audioEnabled && crashAudioRef.current) {
-            crashAudioRef.current.pause();
-            crashAudioRef.current.currentTime = 0.01;
-            crashAudioRef.current.play().catch(() => {});
-          }
-          setTimeout(() => {
-            setShowCrashUI(true);
-            setGamePhase('crashed');
-          }, 150); // Delay UI after sound
-          return crashPoint;
-        }
-
-        return Math.round(newValue * 100) / 100;
-      });
-
-      // Generate new mock bets for this round based on crashPoint
-      const { bets: mockBets, totalBets } = generateMockBets();
+      const newCrashPoint = generateCrashMultiplier();
+      setCrashPoint(newCrashPoint);
+      setCurrentMultiplier(1.00);
+      // Generate mock bets for this round
+      const { bets: mockBets, totalBets } = generateMockBets(newCrashPoint);
       setBets(_prev => {
         const allBets = [...mockBets];
         if (userBet) {
@@ -260,30 +297,41 @@ function App({ user, setUser }: AppProps) {
         return allBets;
       });
       setTotalBets(totalBets);
-      setDisplayedBetCount(0); // reset animated count for new round
+    }
+  }, [gamePhase, generateMockBets, userBet]);
 
-      const interval = setInterval(() => {
+  // When entering the betting phase, optionally generate new mock bets for the next round (if you want to show bets during betting phase)
+  useEffect(() => {
+    if (gamePhase === 'betting') {
+      setCrashPoint(null);
+      setCurrentMultiplier(1.00);
+      // Optionally, generate mock bets for betting phase (with no crashPoint yet)
+      const { bets: mockBets, totalBets } = generateMockBets(null);
+      setBets(_prev => {
+        const allBets = [...mockBets];
+        if (userBet) {
+          allBets.unshift(userBet);
+        }
+        return allBets;
+      });
+      setTotalBets(totalBets);
+    }
+  }, [gamePhase, generateMockBets, userBet]);
+
+  // Use a ref for the flying phase interval
+  const flyingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // In the flying phase multiplier update effect, use the ref and only depend on gamePhase, crashPoint, audioEnabled
+  useEffect(() => {
+    if (gamePhase === 'flying' && crashPoint !== null) {
+      if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
+      flyingIntervalRef.current = setInterval(() => {
         setCurrentMultiplier(prev => {
+          if (crashPoint === null) return prev;
           const increment = Math.random() * 0.025 + 0.005;
           const newValue = prev + increment;
-
-          // Update mock bets for cashout
-          setBets(prevBets => prevBets.map(bet => {
-            if (bet.isUserBet || bet.cashedOut !== undefined) return bet;
-            if (newValue >= (bet.cashoutMultiplier || 0) && (bet.cashoutMultiplier || 0) <= crashMultipliers[multiplierIndex % crashMultipliers.length] && newValue < crashMultipliers[multiplierIndex % crashMultipliers.length]) {
-              // Cashed out before crash
-              return {
-                ...bet,
-                cashedOut: true,
-                multiplier: bet.cashoutMultiplier,
-                winAmount: Math.floor(bet.amount * (bet.cashoutMultiplier || 1)),
-              };
-            }
-            return bet;
-          }));
-
           // Check if we should crash
-          if (newValue >= crashMultipliers[multiplierIndex % crashMultipliers.length]) {
+          if (newValue >= crashPoint!) {
             if (audioEnabled && crashAudioRef.current) {
               crashAudioRef.current.pause();
               crashAudioRef.current.currentTime = 0.01;
@@ -293,58 +341,59 @@ function App({ user, setUser }: AppProps) {
               setShowCrashUI(true);
               setGamePhase('crashed');
             }, 150); // Delay UI after sound
-            return crashMultipliers[multiplierIndex % crashMultipliers.length];
+            return crashPoint!;
           }
-
           return Math.round(newValue * 100) / 100;
         });
       }, 50);
-
-      return () => clearInterval(interval);
+      return () => {
+        if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
+        flyingIntervalRef.current = null;
+      };
+    } else {
+      if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
+      flyingIntervalRef.current = null;
     }
-  }, [gamePhase, crashMultipliers, multiplierIndex, audioEnabled]);
+  }, [gamePhase, crashPoint, audioEnabled]);
 
-  // Handle crash phase
+  // Remove the duplicate crash phase effect and merge logic into a single useEffect
   useEffect(() => {
-    if (gamePhase === 'crashed') {
-      // Calculate winnings for all bets
+    if (gamePhase === 'crashed' && crashPoint !== null) {
       setBets(prevBets => prevBets.map(bet => {
         if (bet.isUserBet || bet.cashedOut !== undefined) return bet;
-        
-        // Check if bet won (multiplier reached before crash)
-        const won = crashMultipliers[multiplierIndex % crashMultipliers.length] >= 1.0;
-        if (won && !bet.cashedOut) {
-          const winAmount = Math.floor(bet.amount * crashMultipliers[multiplierIndex % crashMultipliers.length]);
-          
-          // Update user balance if it's their bet
-          if (bet.isUserBet) {
-            updateBalance(user.balance + winAmount);
-          }
-          
+        // Win: cashed out before or at crash
+        if (bet.cashoutMultiplier && bet.cashoutMultiplier <= crashPoint) {
           return {
             ...bet,
-            multiplier: crashMultipliers[multiplierIndex % crashMultipliers.length],
-            winAmount,
+            cashedOut: true,
+            multiplier: bet.cashoutMultiplier,
+            winAmount: Math.floor(bet.amount * bet.cashoutMultiplier),
+          };
+        } else {
+          // Loss: tried to cash out after crash
+          return {
+            ...bet,
+            cashedOut: false,
+            multiplier: undefined,
+            winAmount: 0,
           };
         }
-        
-        return {
-          ...bet,
-          multiplier: undefined,
-          winAmount: 0,
-        };
       }));
 
-      // Add crash multiplier to previous multipliers
-      const color = crashMultipliers[multiplierIndex % crashMultipliers.length] < 2 ? 'text-red-400' : 
-                   crashMultipliers[multiplierIndex % crashMultipliers.length] < 5 ? 'text-green-400' :
-                   crashMultipliers[multiplierIndex % crashMultipliers.length] < 10 ? 'text-blue-400' : 
-                   crashMultipliers[multiplierIndex % crashMultipliers.length] < 20 ? 'text-purple-400' : 'text-pink-400';
-      
-      setPreviousMultipliers(prev => [
-        { value: crashMultipliers[multiplierIndex % crashMultipliers.length], color },
-        ...prev.slice(0, 15)
-      ]);
+      // Add crash multiplier to previous multipliers, but only if it's not a duplicate of the most recent
+      const color = crashPoint < 2 ? 'text-red-400' : 
+                   crashPoint < 5 ? 'text-green-400' :
+                   crashPoint < 10 ? 'text-blue-400' : 
+                   crashPoint < 20 ? 'text-purple-400' : 'text-pink-400';
+      setPreviousMultipliers(prev => {
+        if (prev.length > 0 && prev[0].value === crashPoint) {
+          return prev;
+        }
+        return [
+          { value: crashPoint, color },
+          ...prev.slice(0, 15)
+        ];
+      });
 
       // Start next round after crash phase
       const timer = setTimeout(() => {
@@ -352,12 +401,11 @@ function App({ user, setUser }: AppProps) {
         setCountdown(BETTING_PHASE_DURATION);
         setCurrentMultiplier(1.00);
         setUserBet(null);
-        setMultiplierIndex(prev => prev + 1);
       }, 4000); // 4 seconds
 
       return () => clearTimeout(timer);
     }
-  }, [gamePhase, crashMultipliers, multiplierIndex]);
+  }, [gamePhase, crashPoint]);
 
   // Animate displayedBetCount during betting phase (robust, never overshoots, resets per round)
   useEffect(() => {
@@ -415,50 +463,106 @@ function App({ user, setUser }: AppProps) {
 
   const handleBetAmountChange = (value: string) => {
     const numValue = parseInt(value) || 0;
-    setBetAmount(Math.max(0, Math.min(numValue, user.balance)));
+    setBetAmount(Math.max(10, Math.min(numValue, user.balance)));
   };
 
   const adjustBetAmount = (delta: number) => {
-    setBetAmount(prev => Math.max(1, Math.min(prev + delta, user.balance)));
+    setBetAmount(prev => Math.max(10, Math.min(prev + delta, user.balance)));
   };
 
   const handlePresetAmount = (amount: number) => {
     setBetAmount(Math.min(amount, user.balance));
   };
 
-  const handlePlaceBet = () => {
-    if (gamePhase === 'betting' && betAmount <= user.balance && betAmount >= 1) {
-      updateBalance(user.balance - betAmount);
-      
-      const newBet: Bet = {
-        id: `user-${Date.now()}`,
-        playerId: 'You',
-        amount: betAmount,
-        isUserBet: true,
-      };
-      
-      setUserBet(newBet);
-    }
-  };
-
   const handleCashOut = () => {
-    if (gamePhase === 'flying' && userBet && !userBet.cashedOut) {
+    if (
+      gamePhase === 'flying' &&
+      userBet &&
+      !userBet.cashedOut &&
+      currentMultiplier < crashPoint // Only allow if not crashed
+    ) {
       const winAmount = Math.floor(userBet.amount * currentMultiplier);
       updateBalance(user.balance + winAmount);
-      
+
       const cashedOutBet = {
         ...userBet,
         multiplier: currentMultiplier,
         winAmount,
         cashedOut: true,
       };
-      
+
       setUserBet(cashedOutBet);
-      setBets(prev => prev.map(bet => 
+      setBets(prev => prev.map(bet =>
         bet.id === userBet.id ? cashedOutBet : bet
       ));
     }
   };
+
+  // Add Supabase bet logic
+  // Store the current bet's database id
+  const [betDbId, setBetDbId] = useState<string | null>(null);
+
+  // Place bet (when user places a bet)
+  const placeBetInDb = async (amount: number) => {
+    const { data } = await supabase
+      .from('bets')
+      .insert([{
+        id: uuidv4(),
+        user_id: user.id,
+        amount,
+        status: 'pending',
+        placed_at: new Date().toISOString(),
+      }])
+      .select();
+    if (data && data[0] && data[0].id) setBetDbId(data[0].id);
+  };
+
+  // On cashout, update the bet in Supabase
+  const cashoutBetInDb = async (multiplier: number, winAmount: number) => {
+    if (!betDbId) return;
+    await supabase
+      .from('bets')
+      .update({
+        cashed_out_at: new Date().toISOString(),
+        cashout_multiplier: multiplier,
+        win_amount: winAmount,
+        status: 'cashed_out',
+      })
+      .eq('id', betDbId);
+  };
+
+  // On crash, update the bet in Supabase if not cashed out
+  const crashBetInDb = async () => {
+    if (!betDbId) return;
+    await supabase
+      .from('bets')
+      .update({
+        status: 'crashed',
+        win_amount: 0,
+      })
+      .eq('id', betDbId);
+  };
+
+  // When placing a bet, call placeBetInDb
+  useEffect(() => {
+    if (userBet && userBet.isUserBet && !userBet.cashedOut) {
+      placeBetInDb(userBet.amount);
+    }
+  }, [userBet && userBet.isUserBet && !userBet.cashedOut]);
+
+  // When cashing out, call cashoutBetInDb
+  useEffect(() => {
+    if (userBet && userBet.cashedOut && userBet.isUserBet) {
+      cashoutBetInDb(userBet.multiplier || 0, userBet.winAmount || 0);
+    }
+  }, [userBet && userBet.cashedOut && userBet.isUserBet]);
+
+  // When the round crashes, if userBet exists and is not cashed out, mark as crashed
+  useEffect(() => {
+    if (gamePhase === 'crashed' && userBet && !userBet.cashedOut && userBet.isUserBet) {
+      crashBetInDb();
+    }
+  }, [gamePhase, userBet]);
 
   const getPhaseDisplay = () => {
     switch (gamePhase) {
@@ -508,7 +612,7 @@ function App({ user, setUser }: AppProps) {
         return (
           <div className="text-center">
             <div className="text-8xl font-bold text-red-400 animate-bounce">
-              {crashMultipliers[multiplierIndex % crashMultipliers.length].toFixed(2)}x
+              {crashPoint?.toFixed(2)}x
             </div>
             {showCrashUI && (
               <div className="text-red-400 text-2xl mt-4 animate-pulse">
@@ -520,13 +624,186 @@ function App({ user, setUser }: AppProps) {
     }
   };
 
-  const canPlaceBet = gamePhase === 'betting' && betAmount <= user.balance && betAmount >= 1 && !userBet;
   const canCashOut = gamePhase === 'flying' && userBet && !userBet.cashedOut;
 
   // Logout handler
   const handleLogout = () => {
     setUser(null);
   };
+
+  // On mount, randomly determine if user joins during betting, flying, or crashed phase
+  useEffect(() => {
+    if (crashPoint !== null) return; // Only run on first mount
+    const phases: GamePhase[] = ['betting', 'flying', 'crashed'];
+    const phase = phases[Math.floor(Math.random() * phases.length)];
+    if (phase === 'betting') {
+      setGamePhase('betting');
+      setCountdown(Math.floor(Math.random() * BETTING_PHASE_DURATION));
+      setCrashPoint(null);
+      setCurrentMultiplier(1.00);
+    } else if (phase === 'flying') {
+      const newCrashPoint = generateCrashMultiplier();
+      setCrashPoint(newCrashPoint);
+      // Pick a random multiplier between 1.01 and just before crashPoint
+      const progress = Math.random();
+      const current = +(1.01 + progress * (newCrashPoint - 1.01 - 0.01)).toFixed(2);
+      setCurrentMultiplier(current);
+      setGamePhase('flying');
+      setCountdown(0);
+    } else {
+      // crashed
+      const newCrashPoint = generateCrashMultiplier();
+      setCrashPoint(newCrashPoint);
+      setCurrentMultiplier(newCrashPoint);
+      setGamePhase('crashed');
+      setCountdown(0);
+      setShowCrashUI(true);
+    }
+  }, []);
+
+  // On phase change, persist round state
+  useEffect(() => {
+    if (gamePhase && crashPoint !== null) {
+      const now = Date.now();
+      if (gamePhase === 'betting') {
+        saveRoundState({
+          phase: 'betting',
+          crashPoint,
+          roundStartTime: now,
+          bettingEndTime: now + countdown * 1000,
+        });
+      } else if (gamePhase === 'flying') {
+        saveRoundState({
+          phase: 'flying',
+          crashPoint,
+          roundStartTime: now - ((currentMultiplier - 1.00) / ((crashPoint - 1.00) / (BETTING_PHASE_DURATION * 1000))) || now,
+          bettingEndTime: null,
+        });
+      } else if (gamePhase === 'crashed') {
+        saveRoundState({
+          phase: 'crashed',
+          crashPoint,
+          roundStartTime: now,
+          bettingEndTime: null,
+        });
+      }
+    }
+  }, [gamePhase, crashPoint, countdown, currentMultiplier]);
+
+  // On mount, restore round state if available
+  useEffect(() => {
+    const state = loadRoundState();
+    if (!state) return;
+    const now = Date.now();
+    if (state.phase === 'betting') {
+      const remaining = Math.max(0, Math.floor((state.bettingEndTime - now) / 1000));
+      setCrashPoint(state.crashPoint);
+      setGamePhase('betting');
+      setCountdown(remaining);
+      setCurrentMultiplier(1.00);
+    } else if (state.phase === 'flying') {
+      const elapsed = (now - state.roundStartTime) / 1000;
+      setCrashPoint(state.crashPoint);
+      setGamePhase('flying');
+      // Estimate multiplier based on elapsed time and crashPoint
+      const duration = BETTING_PHASE_DURATION; // seconds
+      const maxMultiplier = state.crashPoint;
+      const progress = Math.min(1, elapsed / duration);
+      const multiplier = +(1.00 + progress * (maxMultiplier - 1.00)).toFixed(2);
+      setCurrentMultiplier(multiplier);
+      setCountdown(0);
+    } else if (state.phase === 'crashed') {
+      setCrashPoint(state.crashPoint);
+      setGamePhase('crashed');
+      setCurrentMultiplier(state.crashPoint);
+      setCountdown(0);
+      setShowCrashUI(true);
+    }
+  }, []);
+
+  // When entering betting phase, if queuedBetAmount is set, place the bet automatically and clear queuedBetAmount
+  useEffect(() => {
+    if (gamePhase === 'betting' && queuedBetAmount !== null) {
+      if (queuedBetAmount <= user.balance && queuedBetAmount >= 10) {
+        updateBalance(user.balance - queuedBetAmount);
+        const newBet: Bet = {
+          id: `user-${Date.now()}`,
+          playerId: 'You',
+          amount: queuedBetAmount,
+          isUserBet: true,
+        };
+        setUserBet(newBet);
+      }
+      setQueuedBetAmount(null);
+    }
+  }, [gamePhase]);
+
+  // When the round transitions to flying, if userBet is set, clear any queued bet
+  useEffect(() => {
+    if (gamePhase === 'flying' && userBet) {
+      setQueuedBetAmount(null);
+    }
+  }, [gamePhase, userBet]);
+
+  // When the round transitions to flying, if pendingBetAmount is set, place the bet and clear pendingBetAmount
+  useEffect(() => {
+    if (gamePhase === 'flying' && pendingBetAmount !== null) {
+      if (pendingBetAmount <= user.balance && pendingBetAmount >= 10) {
+        updateBalance(user.balance - pendingBetAmount);
+        const newBet: Bet = {
+          id: `user-${Date.now()}`,
+          playerId: 'You',
+          amount: pendingBetAmount,
+          isUserBet: true,
+        };
+        setUserBet(newBet);
+      }
+      setPendingBetAmount(null);
+    }
+  }, [gamePhase]);
+
+  // Show a green toast when the user wins a bet
+  useEffect(() => {
+    if (userBet && userBet.cashedOut && userBet.winAmount && userBet.winAmount > 0) {
+      toast({
+        // Use a custom JSX element for the toast content
+        description: (
+          <div className="flex items-center justify-between bg-green-600 rounded-full px-4 py-2 w-full min-w-[180px] max-w-[260px] shadow-lg">
+            <div className="flex flex-col items-start">
+              <span className="text-xs text-white/80">You have cashed out</span>
+              <span className="text-lg font-bold text-white">{userBet.multiplier?.toFixed(2)}x</span>
+            </div>
+            <div className="ml-4 flex items-center">
+              <span className="bg-green-700 rounded-full px-3 py-1 text-base font-bold text-white shadow">Win KES {userBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        ),
+        className: 'p-0 bg-transparent shadow-none',
+        style: { top: 20, left: '50%', transform: 'translateX(-50%)', position: 'fixed', zIndex: 9999, width: 'auto', minWidth: 180 },
+      });
+    }
+  }, [userBet]);
+
+  // Add state for bet history modal
+  const [showBetHistory, setShowBetHistory] = useState(false);
+  const [betHistory, setBetHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Fetch bet history when modal opens
+  useEffect(() => {
+    if (showBetHistory) {
+      setLoadingHistory(true);
+      supabase
+        .from('bets')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('placed_at', { ascending: false })
+        .then(({ data }) => {
+          setBetHistory(data || []);
+          setLoadingHistory(false);
+        });
+    }
+  }, [showBetHistory, user.id]);
 
   return (
     <>
@@ -538,7 +815,7 @@ function App({ user, setUser }: AppProps) {
       `}</style>
       <div className="min-h-screen bg-zinc-950 text-white relative">
         {/* Hamburger Menu */}
-        <HamburgerMenu onLogout={handleLogout} />
+        <HamburgerMenu onLogout={handleLogout} onShowHistory={() => setShowBetHistory(true)} />
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-center justify-between p-2 sm:p-4 border-b border-zinc-800 gap-2 sm:gap-0">
           {/* Responsive mainlogo: left on mobile, centered on large screens */}
@@ -721,7 +998,7 @@ function App({ user, setUser }: AppProps) {
                         variant="outline"
                         size="sm"
                         onClick={() => adjustBetAmount(-10)}
-                        className="bg-zinc-800 border-zinc-700 hover:bg-zinc-700"
+                        className="bg-zinc-800 border-zinc-700"
                         disabled={betAmount <= 10 || gamePhase !== 'betting'}
                       >
                         <Minus className="w-4 h-4" />
@@ -732,7 +1009,7 @@ function App({ user, setUser }: AppProps) {
                           value={betAmount}
                           onChange={(e) => handleBetAmountChange(e.target.value)}
                           className="bg-zinc-800 border-zinc-700 text-center text-base sm:text-lg font-semibold"
-                          min="1"
+                          min="10"
                           max={user.balance}
                           disabled={gamePhase !== 'betting'}
                         />
@@ -741,7 +1018,7 @@ function App({ user, setUser }: AppProps) {
                         variant="outline"
                         size="sm"
                         onClick={() => adjustBetAmount(10)}
-                        className="bg-zinc-800 border-zinc-700 hover:bg-zinc-700"
+                        className="bg-zinc-800 border-zinc-700"
                         disabled={betAmount >= user.balance || gamePhase !== 'betting'}
                       >
                         <Plus className="w-4 h-4" />
@@ -758,7 +1035,7 @@ function App({ user, setUser }: AppProps) {
                           variant="outline"
                           size="sm"
                           onClick={() => handlePresetAmount(amount)}
-                          className="bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-xs sm:text-sm"
+                          className="bg-zinc-800 border-zinc-700 text-xs sm:text-sm"
                           disabled={amount > user.balance || gamePhase !== 'betting'}
                         >
                           {amount.toLocaleString()}
@@ -784,28 +1061,47 @@ function App({ user, setUser }: AppProps) {
                         style={{ boxShadow: 'none' }}
                       >
                         {userBet.winAmount && userBet.winAmount > 0
-                          ? `+KES ${userBet.winAmount.toLocaleString()}`
+                          ? `+KES ${(userBet.amount * (userBet.multiplier || 1)).toLocaleString()}`
                           : `-KES ${userBet.amount.toLocaleString()}`}
                       </Button>
                     )
                   ) : (
-                    <Button
-                      onClick={handlePlaceBet}
-                      disabled={!canPlaceBet}
-                      className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-500 transition-all duration-200 rounded-full"
-                    >
-                      {gamePhase === 'betting' ? 
-                        (userBet ? 'Bet Placed' : `Bet ${betAmount.toFixed(2)} KES`) : 
-                        gamePhase === 'flying' ? 'Round in Progress' : 'Round Ended'
-                      }
-                    </Button>
+                    pendingBetAmount !== null ? (
+                      <Button
+                        onClick={() => setPendingBetAmount(null)}
+                        className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-red-600 text-white rounded-full border-none focus:outline-none"
+                      >
+                        Cancel
+                      </Button>
+                    ) : queuedBetAmount !== null ? (
+                      <Button
+                        onClick={() => setQueuedBetAmount(null)}
+                        className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-red-600 text-white rounded-full border-none focus:outline-none"
+                      >
+                        Queued
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={
+                          gamePhase === 'betting'
+                            ? () => setPendingBetAmount(betAmount)
+                            : gamePhase === 'flying'
+                              ? () => setQueuedBetAmount(betAmount)
+                              : undefined
+                        }
+                        disabled={betAmount < 10 || betAmount > user.balance || pendingBetAmount !== null || queuedBetAmount !== null}
+                        className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-green-600 transition-all duration-200 rounded-full"
+                      >
+                        {`Bet ${betAmount.toFixed(2)} KES`}
+                      </Button>
+                    )
                   )}
                   {/* Game Status */}
                   <div className="text-center space-y-1 sm:space-y-2">
                     <div className="text-xs sm:text-sm text-zinc-400">
                       {gamePhase === 'betting' ? `Betting closes in ${countdown}s` : 
                        gamePhase === 'flying' ? 'Multiplier rising...' : 
-                       'Calculating results...'}
+                       ''}
                     </div>
                     <div className="text-xs text-zinc-500">
                       Balance: {user.balance.toFixed(2)} KES
@@ -896,12 +1192,63 @@ function App({ user, setUser }: AppProps) {
           </div>
         </div>
       )}
+      {showBetHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
+          <div className="bg-zinc-900 rounded-2xl shadow-xl p-6 w-full max-w-lg mx-2 relative">
+            <button className="absolute top-2 right-2 text-zinc-400 hover:text-red-400 text-xl" onClick={() => setShowBetHistory(false)}>&times;</button>
+            <h2 className="text-xl font-bold mb-4 text-blue-400 text-center">Bet History</h2>
+            {loadingHistory ? (
+              <div className="text-center text-zinc-300">Loading...</div>
+            ) : betHistory.length === 0 ? (
+              <div className="text-center text-zinc-400">No bets found.</div>
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full text-sm text-left">
+                  <thead>
+                    <tr className="text-zinc-400 border-b border-zinc-700">
+                      <th className="py-1">Amount</th>
+                      <th className="py-1">Multiplier</th>
+                      <th className="py-1">Status</th>
+                      <th className="py-1">Win/Loss</th>
+                      <th className="py-1">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {betHistory.map((bet) => (
+                      <tr key={bet.id} className="border-b border-zinc-800">
+                        <td className="py-1 text-zinc-200">{bet.amount}</td>
+                        <td className="py-1 text-zinc-200">{bet.status === 'cashed_out' && bet.cashout_multiplier ? bet.cashout_multiplier.toFixed(2) + 'x' : '-'}</td>
+                        <td className="py-1 font-bold">
+                          {bet.status === 'cashed_out'
+                            ? (bet.win_amount > 0
+                                ? <span className="text-green-400">Win</span>
+                                : <span className="text-red-400">Loss</span>)
+                            : <span className="text-yellow-400">Crashed</span>}
+                        </td>
+                        <td className="py-1 font-bold">
+                          {bet.status === 'cashed_out'
+                            ? (bet.win_amount > 0
+                                ? <span className="text-green-400">+KES {bet.win_amount.toLocaleString()}</span>
+                                : <span className="text-red-400">-KES {bet.amount.toLocaleString()}</span>)
+                            : <span className="text-red-400">-KES {bet.amount.toLocaleString()}</span>}
+                        </td>
+                        <td className="py-1 text-zinc-400">{new Date(bet.placed_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <Toaster />
     </>
   );
 }
 
 // HamburgerMenu component
-function HamburgerMenu({ onLogout }: { onLogout: () => void }) {
+function HamburgerMenu({ onLogout, onShowHistory }: { onLogout: () => void, onShowHistory: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="absolute top-4 right-4 z-50">
@@ -914,6 +1261,13 @@ function HamburgerMenu({ onLogout }: { onLogout: () => void }) {
       </button>
       {open && (
         <div className="absolute right-0 mt-2 w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg py-2">
+          <button
+            onClick={() => { setOpen(false); onShowHistory(); }}
+            className="w-full flex items-center gap-2 px-4 py-2 text-blue-400 hover:bg-blue-600 hover:text-white font-semibold rounded transition focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>
+            Bet History
+          </button>
           <button
             onClick={() => { setOpen(false); onLogout(); }}
             className="w-full flex items-center gap-2 px-4 py-2 text-red-500 hover:bg-red-600 hover:text-white font-semibold rounded transition focus:outline-none focus:ring-2 focus:ring-red-400"

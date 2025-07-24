@@ -1,7 +1,49 @@
 // Auto-generated realistic multiplier list
 
-const crashMultipliers: number[] = [
-  1.23, 2, 1.93, 1.36, 1.26, 7.82, 7.83, 1.17, 122.72, 2.48, 1.58, 1.75, 1.29, 4.32, 1.85, 9.47, 6.85, 1.9, 1.79, 14.03, 1.29, 41.78, 1.19, 7.32, 6.44, 3.78, 1.08, 3.2, 47.5, 21.63, 1.6, 1.54, 1.71, 6.62, 1.12, 3.92, 1.84, 1.44, 5.85, 24.05, 1.53, 1.27, 1.41, 3.87, 3.16, 1.73, 1.13, 2.85, 5.79, 6.94, 1.91, 1.36, 4.11, 1.83, 1.02, 15.35, 2.21, 1.89, 1.15, 9.46, 9.68, 2.87, 1.71, 1.97, 94.81, 4.2, 2.54, 1.97, 1.86, 1.98, 1.84, 1.49, 1.6, 1.68, 5.4, 6.46, 5.29, 1.78, 16.42, 1.9, 7.93, 1.76, 1.12, 1.57, 1.16, 5.01, 19.15, 1.14, 10.19, 1.9, 1.81, 1.29, 8.06, 7.19, 1.58, 1.72, 5.97, 1.24, 131.22, 39.37, 3.81, 8.06, 1.24, 1.78, 9.48, 1.6, 1.32, 6.36, 3.4, 4.01, 1.99, 2.55, 1.69, 1.42, 8.72, 1.58, 1.19, 1.95, 7.24, 2, 1.33, 1.49, 2.88, 2.14, 1.27, 5.76, 1.86, 1.03, 2.31, 4.06, 8.57, 1.05, 31.79, 4.12, 1.17, 2.48, 1.8, 7.68, 1.45, 1.89, 1.38, 6.18, 1.05, 1.57, 5.5, 1.46, 1.1, 1.34, 1.26, 1.01, 1.84, 9.5, 1.7, 2.57, 5.06, 8.91, 8.61, 1.33, 3.78, 1.72, 5.06, 1.46, 1.61, 1.86, 1.22, 4.99, 1.46, 1.09, 1.66, 1.75, 1.29, 1.31, 7.06, 31.23, 1.44, 1.19, 1.32, 1.7, 9.69, 3.09, 1.37, 1.67, 1.17, 1.61, 1.45, 9.78, 11.79, 2.09, 1.41, 3.68, 9.98, 1.53, 1.87, 1.85, 1.87, 1.89, 27.38, 1.96, 7.63, 1.47, 17.27, 9.38, 1.16, 2.65, 1.04, 136.69, 1.6, 1.47, 1.91, 1.75, 1.68, 1.27, 1.02, 1.95, 6.92, 2, 1.23, 1.31, 1.67, 1.37, 3.76, 1.37, 1.61, 1.48, 1.09, 1.98, 6.42, 1.93, 1.57, 7.71, 1.74, 43.82, 3.23, 2.1, 1.93, 1.35, 1.22, 32.54, 18.99, 111.21, 1.85, 1.9, 1.46, 1.79, 1.18, 1.01, 1.5, 1.44, 16.97, 1.72, 9.63, 3.11, 1.56, 1.83, 1.61, 1.65, 1.68, 9.29, 2, 1.21, 26.03, 1.48, 1.47, 9.12, 1, 4.46, 8.27, 2.69, 6.76, 1.56, 1.05, 1.69, 1, 8.41, 2.2, 7.32, 1.8, 1.72, 1.61, 1.31, 1.34, 1.51, 9.15, 1.53, 1.72, 1.09, 26.28, 1.35, 194.11, 1.2, 1.78, 1.85, 8.43, 1.42, 1.35, 6.61, 10.69, 2.47, 1.29, 30.28
-];
+let lastMultiplier: number | null = null;
 
-export default crashMultipliers;
+function getRandom(): number {
+  if (typeof window !== "undefined" && window.crypto && window.crypto.getRandomValues) {
+    const array = new Uint32Array(1);
+    window.crypto.getRandomValues(array);
+    return array[0] / (0xFFFFFFFF + 1);
+  }
+  return Math.random();
+}
+
+/**
+ * Generates a crash multiplier following an exponential distribution with:
+ * - Most values between 1.01x and 2x
+ * - Rare huge multipliers (100x-500x, 0.1% chance)
+ * - 10% house edge
+ * - Clamped between 1.01x and 500x
+ * - No consecutive repeats
+ * - Unpredictable RNG
+ */
+export function generateCrashMultiplier(): number {
+  const HOUSE_EDGE = 0.1;
+  const MIN_MULTIPLIER = 1.01;
+  const MAX_MULTIPLIER = 500;
+  const HUGE_MULTIPLIER_CHANCE = 0.001; // 0.1%
+
+  let multiplier: number;
+
+  do {
+    const rng = getRandom();
+
+    // Rare huge multiplier
+    if (rng < HUGE_MULTIPLIER_CHANCE) {
+      multiplier = 100 + getRandom() * (MAX_MULTIPLIER - 100);
+    } else {
+      // Exponential-like distribution with house edge
+      const payout = (1 - HOUSE_EDGE) / (1 - getRandom());
+      multiplier = Math.max(MIN_MULTIPLIER, Math.min(payout, MAX_MULTIPLIER));
+    }
+
+    // Round to 2 decimals
+    multiplier = Math.round(multiplier * 100) / 100;
+  } while (multiplier === lastMultiplier);
+
+  lastMultiplier = multiplier;
+  return multiplier;
+}
