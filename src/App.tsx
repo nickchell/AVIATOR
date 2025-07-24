@@ -152,7 +152,7 @@ function App({ user, setUser }: AppProps) {
   }, [audioEnabled]);
 
   // Generate mock bets for other players
-  const generateMockBets = useCallback((crashMultiplier: number): { bets: Bet[], totalBets: number } => {
+  const generateMockBets = useCallback((): { bets: Bet[], totalBets: number } => {
     const totalBets = Math.floor(Math.random() * 2501) + 500;
     const numDisplayBets = 50;
     const mockBets: Bet[] = [];
@@ -199,8 +199,8 @@ function App({ user, setUser }: AppProps) {
       setCurrentMultiplier(1.00);
       
       // Generate mock bets for this round
-      const { bets: mockBets, totalBets } = generateMockBets(crashMultipliers[multiplierIndex % crashMultipliers.length]);
-      setBets(prev => {
+      const { bets: mockBets, totalBets } = generateMockBets();
+      setBets(_prev => {
         const allBets = [...mockBets];
         if (userBet) {
           allBets.unshift(userBet);
@@ -252,8 +252,8 @@ function App({ user, setUser }: AppProps) {
       });
 
       // Generate new mock bets for this round based on crashPoint
-      const { bets: mockBets, totalBets } = generateMockBets(crashMultipliers[multiplierIndex % crashMultipliers.length]);
-      setBets(prev => {
+      const { bets: mockBets, totalBets } = generateMockBets();
+      setBets(_prev => {
         const allBets = [...mockBets];
         if (userBet) {
           allBets.unshift(userBet);
