@@ -87,7 +87,6 @@ function App({ user, setUser }: AppProps) {
   const [userBet, setUserBet] = useState<Bet | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
   const [previousMultipliers, setPreviousMultipliers] = useState<PreviousMultiplier[]>(INITIAL_PREVIOUS_MULTIPLIERS);
-  const [roundNumber, setRoundNumber] = useState<number>(1);
   const [multiplierIndex, setMultiplierIndex] = useState<number>(0);
   const [totalBets, setTotalBets] = useState<number>(0);
   const [displayedBetCount, setDisplayedBetCount] = useState<number>(0);
@@ -353,7 +352,6 @@ function App({ user, setUser }: AppProps) {
         setCountdown(BETTING_PHASE_DURATION);
         setCurrentMultiplier(1.00);
         setUserBet(null);
-        setRoundNumber(prev => prev + 1);
         setMultiplierIndex(prev => prev + 1);
       }, 4000); // 4 seconds
 
@@ -543,10 +541,15 @@ function App({ user, setUser }: AppProps) {
         <HamburgerMenu onLogout={handleLogout} />
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-center justify-between p-2 sm:p-4 border-b border-zinc-800 gap-2 sm:gap-0">
-          <div className="flex items-center space-x-2 sm:space-x-4">
-            <img src="/logo.png" alt="Logo" className="w-24 sm:w-32 object-contain" draggable="false" />
-            <div className="text-xs sm:text-sm text-zinc-400">
-              Round #{roundNumber}
+          {/* Responsive mainlogo: left on mobile, centered on large screens */}
+          <div className="flex items-center w-full">
+            <div className="flex-1 flex lg:justify-center justify-start">
+              <img
+                src="/hybridlogo.png"
+                alt="Hybrid Logo"
+                className="w-52 max-w-[260px] h-16 sm:h-20 object-contain"
+                draggable="false"
+              />
             </div>
           </div>
           <div className="flex items-center gap-1 mr-10 sm:mr-16">
