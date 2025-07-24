@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient';
+import Confetti from 'react-confetti-boom';
 
 type LandingPageProps = {
   onPlayNow: (user: any) => void;
@@ -14,6 +15,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [pendingUser, setPendingUser] = useState<any>(null);
 
   const handlePlayNowClick = () => {
     setShowModal(true);
@@ -85,9 +88,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
         setError('Failed to register. Please try again.');
         return;
       }
-      setLoading(false);
+      setShowWelcome(true);
+      setPendingUser(newUser);
       setShowModal(false);
-      onPlayNow(newUser);
     }
   };
 
@@ -136,7 +139,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
 
       {/* Join Next Round Section */}
       <section className="flex flex-col items-center py-10 px-4">
-        <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-yellow-400">📲 Don’t Miss the Next Takeoff!</h2>
+        <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-yellow-400"> Don’t Miss the Next Takeoff!</h2>
         <p className="text-zinc-200 mb-4 text-center max-w-lg">
           The plane takes off every few seconds.<br />
           Jump in and play in under 30 seconds — hakuna long signup!
@@ -212,6 +215,32 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Welcome Confetti and Message */}
+      {showWelcome && (
+        <>
+          <Confetti mode="boom" />
+          <div className="fixed inset-0 z-[100] flex items-center justify-center">
+            <div className="relative z-10 bg-black/80 border border-yellow-400 rounded-2xl px-6 py-8 shadow-xl flex flex-col items-center">
+              <div className="text-3xl mb-2">🎉</div>
+              <div className="text-lg font-bold text-yellow-400 text-center mb-1">Karibu Hero</div>
+              <div className="text-base text-white text-center mb-4">
+                You have been awarded <span className="text-green-400 font-bold">Ksh. 50</span> to start off for free,<br />
+                keep it <span className="text-yellow-400 font-bold">bet</span><span className="text-white font-bold">hero</span>!
+              </div>
+              <button
+                className="mt-2 bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 px-6 rounded-full text-lg shadow transition"
+                onClick={() => {
+                  setShowWelcome(false);
+                  if (pendingUser) onPlayNow(pendingUser);
+                }}
+              >
+                Receive Reward
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Footer */}
