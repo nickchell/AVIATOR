@@ -423,7 +423,7 @@ function App({ user, setUser }: AppProps) {
           return prevValue;
         });
         // End the round only when the multiplier reaches the crash point
-        if (newValue >= crashPoint) {
+        if (crashPoint && newValue >= crashPoint) {
           setCurrentMultiplier(crashPoint);
           setGamePhase('crashed');
           setShowCrashUI(true);
@@ -603,7 +603,7 @@ function App({ user, setUser }: AppProps) {
       gamePhase === 'flying' &&
       userBet &&
       !userBet.cashedOut &&
-      currentMultiplier < crashPoint // Only allow if not crashed
+      crashPoint && currentMultiplier < crashPoint // Only allow if not crashed
     ) {
       const winAmount = Math.floor(userBet.amount * currentMultiplier);
       updateBalance(user.balance + winAmount);
