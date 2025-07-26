@@ -41,7 +41,6 @@ interface PreviousMultiplier {
 }
 
 // Update preset amounts
-const PRESET_AMOUNTS = [100, 200, 500, 1000];
 const BETTING_PHASE_DURATION = 6; // seconds
 const WAIT_PHASE_DURATION = 3; // seconds for wait phase between rounds
 
@@ -117,6 +116,9 @@ function App({ user, setUser }: AppProps) {
   const [queuedBetAmount, setQueuedBetAmount] = useState<number|null>(null);
   // Add state for pending bet during betting phase
   const [pendingBetAmount, setPendingBetAmount] = useState<number|null>(null);
+  // Add state for autocash out
+  const [autoCashoutEnabled, setAutoCashoutEnabled] = useState<boolean>(false);
+  const [autoCashoutValue, setAutoCashoutValue] = useState<number>(2.00);
   const { toast } = useToast();
   // Track previous gamePhase to prevent unwanted multiplier reset
   // Remove the unused prevGamePhase variable
@@ -270,6 +272,11 @@ function App({ user, setUser }: AppProps) {
             return bet;
           });
         });
+        
+        // Auto cashout logic for user bet
+        if (autoCashoutEnabled && userBet && !userBet.cashedOut && currentMultiplier >= autoCashoutValue) {
+          handleCashOut();
+        }
       }, 100); // Update every 100ms for smooth real-time experience
       
       return () => {
@@ -284,7 +291,7 @@ function App({ user, setUser }: AppProps) {
         betUpdateIntervalRef.current = null;
       }
     }
-  }, [gamePhase, crashPoint, currentMultiplier]);
+  }, [gamePhase, crashPoint, currentMultiplier, autoCashoutEnabled, autoCashoutValue, userBet]);
 
   // Helper for weighted random bet amounts
   function getWeightedBetAmount() {
@@ -589,10 +596,6 @@ function App({ user, setUser }: AppProps) {
 
   const adjustBetAmount = (delta: number) => {
     setBetAmount(prev => Math.max(10, Math.min(prev + delta, user.balance)));
-  };
-
-  const handlePresetAmount = (amount: number) => {
-    setBetAmount(Math.min(amount, user.balance));
   };
 
   const handleCashOut = () => {
@@ -1221,23 +1224,41 @@ function App({ user, setUser }: AppProps) {
                       </Button>
                     </div>
                   </div>
-                  {/* Preset Amounts */}
+                  {/* Autocash Out Toggle */}
                   <div>
-                    <label className="text-xs sm:text-sm text-zinc-400 mb-2 block">Quick Bet</label>
-                    <div className="grid grid-cols-2 gap-1 sm:gap-2">
-                      {PRESET_AMOUNTS.map((amount) => (
-                        <Button
-                          key={amount}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePresetAmount(amount)}
-                          className="bg-zinc-800 border-zinc-700 text-xs sm:text-sm"
-                          disabled={amount > user.balance || gamePhase !== 'betting'}
-                        >
-                          {amount.toLocaleString()}
-                        </Button>
-                      ))}
+                    <label className="text-xs sm:text-sm text-zinc-400 mb-2 block">Auto Cashout</label>
+                    <div className="flex items-center gap-2 mb-2">
+                      <button
+                        onClick={() => setAutoCashoutEnabled(!autoCashoutEnabled)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-zinc-900 ${
+                          autoCashoutEnabled ? 'bg-green-600' : 'bg-zinc-700'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            autoCashoutEnabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                      <label className="text-xs sm:text-sm text-zinc-300">
+                        Enable Auto Cashout
+                      </label>
                     </div>
+                    {autoCashoutEnabled && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={autoCashoutValue}
+                          onChange={(e) => setAutoCashoutValue(parseFloat(e.target.value) || 1.00)}
+                          min="1.00"
+                          max="100.00"
+                          step="0.01"
+                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs sm:text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                          placeholder="2.00"
+                        />
+                        <span className="text-xs sm:text-sm text-zinc-400">x</span>
+                      </div>
+                    )}
                   </div>
                   {/* Action Button */}
                   {userBet && gamePhase === 'flying' ? (
