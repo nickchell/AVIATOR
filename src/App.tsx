@@ -5,12 +5,13 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Minus, Plus, Timer } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
-import { generateCrashMultiplier } from './data/crashMultipliers';
+
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
 import { v4 as uuidv4 } from 'uuid';
+import { BACKEND_URL, getCurrentRound, fetchMultiplierBatch } from './lib/utils';
 
-type GamePhase = 'betting' | 'flying' | 'crashed';
+type GamePhase = 'betting' | 'flying' | 'crashed' | 'wait';
 
 interface AppProps {
   user: {
@@ -42,6 +43,12 @@ interface PreviousMultiplier {
 // Update preset amounts
 const PRESET_AMOUNTS = [100, 200, 500, 1000];
 const BETTING_PHASE_DURATION = 6; // seconds
+const WAIT_PHASE_DURATION = 3; // seconds for wait phase between rounds
+
+// Backend configuration
+const ROUND_DURATION = 10000; // 10 seconds per round in milliseconds
+const START_TIME = Date.UTC(2025, 6, 26, 0, 0, 0); // July 26, 2025, 00:00:00 UTC
+const BATCH_SIZE = 100; // Number of multipliers to fetch at once
 
 // Mock player IDs (no avatars)
 const MOCK_PLAYERS = [
@@ -52,29 +59,7 @@ const MOCK_PLAYERS = [
   '5***1', '5***2', '5***3', '5***4', '5***5',
 ];
 
-const INITIAL_PREVIOUS_MULTIPLIERS: PreviousMultiplier[] = [
-  { value: 5.48, color: 'text-purple-400' },
-  { value: 2.08, color: 'text-green-400' },
-  { value: 1.51, color: 'text-green-400' },
-  { value: 1.73, color: 'text-green-400' },
-  { value: 12.06, color: 'text-pink-400' },
-  { value: 1.44, color: 'text-green-400' },
-  { value: 1.03, color: 'text-red-400' },
-  { value: 3.53, color: 'text-blue-400' },
-  { value: 3.23, color: 'text-blue-400' },
-  { value: 3.75, color: 'text-blue-400' },
-  { value: 13.84, color: 'text-pink-400' },
-  { value: 1.17, color: 'text-green-400' },
-  { value: 1.40, color: 'text-green-400' },
-  { value: 1.32, color: 'text-green-400' },
-  { value: 29.21, color: 'text-pink-500' },
-  { value: 6.71, color: 'text-purple-400' },
-];
-
 // Utility to persist round state
-function saveRoundState(state: any) {
-  localStorage.setItem('aviator_round_state', JSON.stringify(state));
-}
 function loadRoundState() {
   const raw = localStorage.getItem('aviator_round_state');
   if (!raw) return null;
@@ -85,10 +70,20 @@ function loadRoundState() {
   }
 }
 
+// Remove local getCurrentRound and fetchMultiplierBatch implementations from this file.
+
 function App({ user, setUser }: AppProps) {
   const [gamePhase, setGamePhase] = useState<GamePhase>('betting');
   const [countdown, setCountdown] = useState<number>(BETTING_PHASE_DURATION);
+  const [waitCountdown, setWaitCountdown] = useState<number>(WAIT_PHASE_DURATION);
   const [currentMultiplier, setCurrentMultiplier] = useState<number>(1.00);
+  
+  // Multiplier batch management
+  const [multiplierBatch, setMultiplierBatch] = useState<Array<{ round_number: number, multiplier: number }>>([]);
+  const [batchIndex, setBatchIndex] = useState<number>(0);
+  const [currentRound, setCurrentRound] = useState<number>(0);
+  const [isLoadingBatch, setIsLoadingBatch] = useState<boolean>(false);
+  
   // Always use user.balance from props. No local balance state.
 
   // Update balance in Supabase and refetch user
@@ -105,7 +100,7 @@ function App({ user, setUser }: AppProps) {
   const [betAmount, setBetAmount] = useState<number>(10);
   const [userBet, setUserBet] = useState<Bet | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
-  const [previousMultipliers, setPreviousMultipliers] = useState<PreviousMultiplier[]>(INITIAL_PREVIOUS_MULTIPLIERS);
+  const [previousMultipliers, setPreviousMultipliers] = useState<PreviousMultiplier[]>([]);
   const [totalBets, setTotalBets] = useState<number>(0);
   const [displayedBetCount, setDisplayedBetCount] = useState<number>(0);
   const [progress, setProgress] = useState(0);
@@ -129,6 +124,7 @@ function App({ user, setUser }: AppProps) {
   // Add audio refs for flying and crash sounds
   const flyingAudioRef = useRef<HTMLAudioElement | null>(null);
   const crashAudioRef = useRef<HTMLAudioElement | null>(null);
+  const crashSoundPlayedRef = useRef<boolean>(false);
 
   // Use public/ directory for audio files
   useEffect(() => {
@@ -176,29 +172,60 @@ function App({ user, setUser }: AppProps) {
     }
   }, [audioEnabled]);
 
-  // Generate mock bets for other players
+  // Reset crash sound flag when entering flying phase
+  useEffect(() => {
+    if (gamePhase === 'flying') {
+      crashSoundPlayedRef.current = false;
+    }
+  }, [gamePhase]);
+
+  // Generate mock bets with realistic cashout distribution
   const generateMockBets = useCallback((crashPointForRound: number | null): { bets: Bet[], totalBets: number } => {
     const totalBets = Math.floor(Math.random() * 2501) + 500;
     const numDisplayBets = 50;
-    // Step 1: Generate unique multipliers as much as possible
-    const uniqueMultipliers = new Set<number>();
-    while (uniqueMultipliers.size < numDisplayBets) {
-      let cashout: number;
-      if (crashPointForRound) {
-        cashout = getRandomCashout(crashPointForRound);
-      } else {
-        cashout = +(Math.random() * 4 + 1.1 + Math.random() * 0.01).toFixed(2);
+    
+    // Realistic cashout distribution based on psychology
+    // Most players cash out early, few take high risks
+    const generateRealisticCashout = (crashPoint: number | null): number => {
+      if (!crashPoint) {
+        // For betting phase, generate random cashout between 1.1x and 5x
+        return +(Math.random() * 3.9 + 1.1).toFixed(2);
       }
-      uniqueMultipliers.add(cashout);
-      if (uniqueMultipliers.size >= numDisplayBets) break;
-    }
-    const multipliersArr = Array.from(uniqueMultipliers);
-    // Step 2: Generate bets and assign multipliers
+      
+      // Realistic distribution: 60% cash out before 2x, 25% between 2x-5x, 10% between 5x-10x, 5% above 10x
+      const rand = Math.random();
+      let cashout: number;
+      
+      if (rand < 0.6) {
+        // 60%: Cash out early (1.1x to 2x)
+        cashout = +(Math.random() * 0.9 + 1.1).toFixed(2);
+      } else if (rand < 0.85) {
+        // 25%: Moderate risk (2x to 5x)
+        cashout = +(Math.random() * 3 + 2).toFixed(2);
+      } else if (rand < 0.95) {
+        // 10%: High risk (5x to 10x)
+        cashout = +(Math.random() * 5 + 5).toFixed(2);
+      } else {
+        // 5%: Very high risk (10x to 20x, but never above crash point)
+        cashout = +(Math.random() * 10 + 10).toFixed(2);
+      }
+      
+      // Ensure no bet cashes out above the crash point
+      if (cashout >= crashPoint) {
+        // If generated cashout is above crash point, make it lose (cashout after crash)
+        cashout = +(crashPoint + Math.random() * 2 + 0.1).toFixed(2);
+      }
+      
+      return cashout;
+    };
+    
+    // Generate bets with realistic cashout points
     const mockBets: Bet[] = [];
     for (let i = 0; i < numDisplayBets; i++) {
       const playerId = MOCK_PLAYERS[Math.floor(Math.random() * MOCK_PLAYERS.length)];
       const amount = getWeightedBetAmount();
-      const cashoutMultiplier = multipliersArr[i % multipliersArr.length];
+      const cashoutMultiplier = generateRealisticCashout(crashPointForRound);
+      
       mockBets.push({
         id: `mock-${i}-${Date.now()}-${Math.floor(Math.random()*100000)}`,
         playerId,
@@ -207,56 +234,83 @@ function App({ user, setUser }: AppProps) {
         isUserBet: false,
       });
     }
-    // Step 3: Shuffle the bets to avoid adjacent duplicates
+    
+    // Shuffle bets randomly so cashouts happen at different positions
     for (let i = mockBets.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [mockBets[i], mockBets[j]] = [mockBets[j], mockBets[i]];
     }
-    // Step 4: If any adjacent duplicates, swap with a random other bet
-    for (let i = 1; i < mockBets.length; i++) {
-      if (mockBets[i].cashoutMultiplier === mockBets[i-1].cashoutMultiplier) {
-        const swapWith = (i+1) % mockBets.length;
-        [mockBets[i], mockBets[swapWith]] = [mockBets[swapWith], mockBets[i]];
-      }
-    }
+    
     return { bets: mockBets, totalBets };
   }, []);
 
+  // Real-time bet update system (runs every 100ms during flying phase)
+  const betUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  useEffect(() => {
+    if (gamePhase === 'flying' && crashPoint !== null) {
+      betUpdateIntervalRef.current = setInterval(() => {
+        setBets(prevBets => {
+          return prevBets.map(bet => {
+            // Skip user bets and already cashed out bets
+            if (bet.isUserBet || bet.cashedOut !== undefined) {
+              return bet;
+            }
+            
+            // Check if this bet should cash out at current multiplier
+            if (bet.cashoutMultiplier && currentMultiplier >= bet.cashoutMultiplier) {
+              return {
+                ...bet,
+                cashedOut: true,
+                multiplier: bet.cashoutMultiplier,
+                winAmount: Math.floor(bet.amount * bet.cashoutMultiplier),
+              };
+            }
+            
+            return bet;
+          });
+        });
+      }, 100); // Update every 100ms for smooth real-time experience
+      
+      return () => {
+        if (betUpdateIntervalRef.current) {
+          clearInterval(betUpdateIntervalRef.current);
+          betUpdateIntervalRef.current = null;
+        }
+      };
+    } else {
+      if (betUpdateIntervalRef.current) {
+        clearInterval(betUpdateIntervalRef.current);
+        betUpdateIntervalRef.current = null;
+      }
+    }
+  }, [gamePhase, crashPoint, currentMultiplier]);
+
   // Helper for weighted random bet amounts
   function getWeightedBetAmount() {
-    // Realistic psychological numbers, max 5000, 300+ rare
-    const pool = [10, 20, 30, 40, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000];
-    // More small/medium, very few large (300+)
-    const weights = [30, 20, 12, 10, 12, 10, 15, 8, 10, 7, 3, 2, 2, 1, 1, 0.7, 0.5, 0.3, 0.2, 0.1, 0.05];
+    // Realistic bet amounts based on typical gambling behavior
+    // Most people bet small amounts, few bet large amounts
+    const betAmounts = [
+      10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000
+    ];
+    
+    // Weights: Heavy on small amounts, decreasing as amounts get larger
+    const weights = [
+      25, 20, 15, 12, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 1.5, 1, 0.8, 0.6, 0.4, 0.3, 0.2, 0.15, 0.1, 0.05, 0.03, 0.02, 0.01, 0.005
+    ];
+    
     const totalWeight = weights.reduce((a, b) => a + b, 0);
-    if (Math.random() < 0.9) {
-      let r = Math.random() * totalWeight;
-      for (let i = 0; i < pool.length; i++) {
-        if (r < weights[i]) return pool[i];
-        r -= weights[i];
-      }
-      return 10;
-    } else {
-      // 10%: pick a random odd number between 300 and 5000 not in the pool
-      let n;
-      do {
-        n = Math.floor(Math.random() * 4701) + 300;
-      } while (pool.includes(n));
-      return n;
+    let r = Math.random() * totalWeight;
+    
+    for (let i = 0; i < betAmounts.length; i++) {
+      if (r < weights[i]) return betAmounts[i];
+      r -= weights[i];
     }
+    
+    return 10; // Fallback to minimum bet
   }
 
-  // Helper for random cashout multiplier (some above crashPoint)
-  function getRandomCashout(crashPoint: number) {
-    // 70% cash out before crash, 30% after (lose)
-    if (Math.random() < 0.7) {
-      return +(Math.random() * (crashPoint - 1.01) + 1.01 + Math.random() * 0.01).toFixed(2);
-    } else {
-      return +(Math.random() * (500 - crashPoint) + crashPoint + 0.01 + Math.random() * 0.01).toFixed(2);
-    }
-  }
-
-  // Handle betting phase countdown
+  // Robust betting phase countdown
   useEffect(() => {
     if (gamePhase === 'betting' && countdown > 0) {
       const timer = setTimeout(() => {
@@ -264,12 +318,24 @@ function App({ user, setUser }: AppProps) {
       }, 1000);
       return () => clearTimeout(timer);
     } else if (gamePhase === 'betting' && countdown === 0) {
-      // Start flying phase
       setGamePhase('flying');
+    }
+  }, [gamePhase, countdown]);
+
+  // When entering the flying phase, use multiplier from batch and generate mock bets ONCE
+  useEffect(() => {
+    if (gamePhase === 'flying') {
+      // Use multiplier from current batch index only
+      const currentBatchMultiplier = multiplierBatch[batchIndex]?.multiplier;
+      if (!currentBatchMultiplier) {
+        console.error('No multiplier available in batch for flying phase');
+        return;
+      }
+      setCrashPoint(currentBatchMultiplier);
       setCurrentMultiplier(1.00);
       
       // Generate mock bets for this round
-      const { bets: mockBets, totalBets } = generateMockBets(null);
+      const { bets: mockBets, totalBets } = generateMockBets(currentBatchMultiplier);
       setBets(_prev => {
         const allBets = [...mockBets];
         if (userBet) {
@@ -279,26 +345,7 @@ function App({ user, setUser }: AppProps) {
       });
       setTotalBets(totalBets);
     }
-  }, [gamePhase, countdown, generateMockBets, userBet]);
-
-  // When entering the flying phase, generate and set a new crashPoint and generate mock bets ONCE
-  useEffect(() => {
-    if (gamePhase === 'flying') {
-      const newCrashPoint = generateCrashMultiplier();
-      setCrashPoint(newCrashPoint);
-      setCurrentMultiplier(1.00);
-      // Generate mock bets for this round
-      const { bets: mockBets, totalBets } = generateMockBets(newCrashPoint);
-      setBets(_prev => {
-        const allBets = [...mockBets];
-        if (userBet) {
-          allBets.unshift(userBet);
-        }
-        return allBets;
-      });
-      setTotalBets(totalBets);
-    }
-  }, [gamePhase, generateMockBets, userBet]);
+  }, [gamePhase, generateMockBets, userBet, multiplierBatch, batchIndex]);
 
   // When entering the betting phase, optionally generate new mock bets for the next round (if you want to show bets during betting phase)
   useEffect(() => {
@@ -321,30 +368,66 @@ function App({ user, setUser }: AppProps) {
   // Use a ref for the flying phase interval
   const flyingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // In the flying phase multiplier update effect, use the ref and only depend on gamePhase, crashPoint, audioEnabled
+  // Only reset multiplier to 1.00 when entering flying phase
   useEffect(() => {
+    if (gamePhase === 'flying') {
+      setCurrentMultiplier(1.00);
+    }
+  }, [gamePhase]);
+
+  // In the flying phase multiplier update effect, animate towards the batch multiplier
+  useEffect(() => {
+    // Always clear interval before starting
+    if (flyingIntervalRef.current) {
+      clearInterval(flyingIntervalRef.current);
+      flyingIntervalRef.current = null;
+    }
     if (gamePhase === 'flying' && crashPoint !== null) {
-      if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
+      // Time estimation function for realistic speed
+      function estimateTimeToMultiplier(target: number): number {
+        const baseTime = 8;
+        const scaledTime = baseTime * Math.pow(target / 2, 0.5);
+        return Math.max(scaledTime, 3);
+      }
+      const startTime = Date.now();
+      const totalTimeToCrash = estimateTimeToMultiplier(crashPoint);
+      function getMultiplier(elapsedMs: number, target: number, totalTimeToCrash: number): number {
+        const elapsedSec = elapsedMs / 1000;
+        const adjustedTime = totalTimeToCrash * 1.5;
+        const growthRate = Math.exp(Math.log(target) / adjustedTime);
+        let multiplier = Math.pow(growthRate, elapsedSec);
+        multiplier = Math.min(multiplier, target);
+        return parseFloat(multiplier.toFixed(2));
+      }
+      // INSTANT CRASH for <1.03
+      if (crashPoint < 1.03) {
+        setCurrentMultiplier(crashPoint);
+        setGamePhase('crashed');
+        setShowCrashUI(true);
+        return;
+      }
       flyingIntervalRef.current = setInterval(() => {
-        setCurrentMultiplier(prev => {
-          if (crashPoint === null) return prev;
-          const increment = Math.random() * 0.025 + 0.005;
-          const newValue = prev + increment;
-          // Check if we should crash
-          if (newValue >= crashPoint!) {
-            if (audioEnabled && crashAudioRef.current) {
-              crashAudioRef.current.pause();
-              crashAudioRef.current.currentTime = 0.01;
-              crashAudioRef.current.play().catch(() => {});
-            }
-            setTimeout(() => {
-              setShowCrashUI(true);
-              setGamePhase('crashed');
-            }, 150); // Delay UI after sound
-            return crashPoint!;
+        const elapsed = Date.now() - startTime;
+        const newValue = getMultiplier(elapsed, crashPoint, totalTimeToCrash);
+        setCurrentMultiplier(prevValue => {
+          if (Math.abs(newValue - prevValue) >= 0.01) {
+            return parseFloat(newValue.toFixed(2));
           }
-          return Math.round(newValue * 100) / 100;
+          return prevValue;
         });
+        // End the round only when the multiplier reaches the crash point
+        if (newValue >= crashPoint) {
+          setCurrentMultiplier(crashPoint);
+          setGamePhase('crashed');
+          setShowCrashUI(true);
+          if (audioEnabled && crashAudioRef.current && !crashSoundPlayedRef.current && crashPoint >= 1.03) {
+            crashAudioRef.current.currentTime = 0.02;
+            crashAudioRef.current.play().catch(() => {});
+            crashSoundPlayedRef.current = true;
+          }
+          if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
+          flyingIntervalRef.current = null;
+        }
       }, 50);
       return () => {
         if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
@@ -354,7 +437,7 @@ function App({ user, setUser }: AppProps) {
       if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
       flyingIntervalRef.current = null;
     }
-  }, [gamePhase, crashPoint, audioEnabled]);
+  }, [gamePhase, crashPoint]);
 
   // Remove the duplicate crash phase effect and merge logic into a single useEffect
   useEffect(() => {
@@ -380,32 +463,70 @@ function App({ user, setUser }: AppProps) {
         }
       }));
 
-      // Add crash multiplier to previous multipliers, but only if it's not a duplicate of the most recent
-      const color = crashPoint < 2 ? 'text-red-400' : 
-                   crashPoint < 5 ? 'text-green-400' :
-                   crashPoint < 10 ? 'text-blue-400' : 
-                   crashPoint < 20 ? 'text-purple-400' : 'text-pink-400';
-      setPreviousMultipliers(prev => {
-        if (prev.length > 0 && prev[0].value === crashPoint) {
-          return prev;
+      // Refetch previous multipliers after each round ends
+      (async () => {
+        try {
+          const from = Math.max(0, currentRound - 9); // include the just-ended round
+          const to = currentRound;
+          const res = await fetch(`${BACKEND_URL}/api/multipliers?from=${from}&to=${to}`);
+          if (res.ok) {
+            const data = await res.json();
+            const previous = data.reverse().map((item: any) => ({
+              value: item.multiplier,
+              color: item.multiplier < 2 ? 'text-red-400' : 
+                     item.multiplier < 5 ? 'text-green-400' :
+                     item.multiplier < 10 ? 'text-blue-400' : 
+                     item.multiplier < 20 ? 'text-purple-400' : 'text-pink-400'
+            }));
+            setPreviousMultipliers(previous);
+          } else {
+            setPreviousMultipliers([]);
+          }
+        } catch (e) {
+          setPreviousMultipliers([]);
         }
-        return [
-          { value: crashPoint, color },
-          ...prev.slice(0, 15)
-        ];
-      });
+      })();
 
       // Start next round after crash phase
-      const timer = setTimeout(() => {
-        setGamePhase('betting');
-        setCountdown(BETTING_PHASE_DURATION);
+      const timer = setTimeout(async () => {
+        // Advance to next round
+        const nextBatchIndex = batchIndex + 1;
+        setBatchIndex(nextBatchIndex);
+        
+        // Update current round number
+        const nextRound = currentRound + 1;
+        setCurrentRound(nextRound);
+        
+        // Check if we need to fetch more multipliers
+        if (nextBatchIndex >= multiplierBatch.length - 3) {
+          const nextBatchStartRound = currentRound + multiplierBatch.length;
+          const newBatch = await fetchMultiplierBatch(nextBatchStartRound, BATCH_SIZE);
+          setMultiplierBatch(prev => [...prev, ...newBatch]);
+        }
+        
+        setGamePhase('wait');
+        setWaitCountdown(WAIT_PHASE_DURATION);
         setCurrentMultiplier(1.00);
         setUserBet(null);
-      }, 4000); // 4 seconds
+      }, 2000); // 2 seconds to show crash result
 
       return () => clearTimeout(timer);
     }
-  }, [gamePhase, crashPoint]);
+  }, [gamePhase, crashPoint, batchIndex, multiplierBatch.length, currentRound]);
+
+  // Handle wait phase countdown
+  useEffect(() => {
+    if (gamePhase === 'wait' && waitCountdown > 0) {
+      const timer = setTimeout(() => {
+        setWaitCountdown(prev => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (gamePhase === 'wait' && waitCountdown === 0) {
+      // Transition to betting phase
+      setGamePhase('betting');
+      setCountdown(BETTING_PHASE_DURATION);
+    }
+  }, [gamePhase, waitCountdown]);
 
   // Animate displayedBetCount during betting phase (robust, never overshoots, resets per round)
   useEffect(() => {
@@ -603,7 +724,7 @@ function App({ user, setUser }: AppProps) {
       case 'flying':
         return (
           <div className="text-center">
-            <div className="text-8xl font-bold text-green-400 animate-pulse">
+            <div className="text-8xl font-bold text-white">
               {currentMultiplier.toFixed(2)}x
             </div>
           </div>
@@ -611,8 +732,21 @@ function App({ user, setUser }: AppProps) {
       case 'crashed':
         return (
           <div className="text-center">
-            <div className="text-8xl font-bold text-red-400 animate-bounce">
-              {crashPoint?.toFixed(2)}x
+            <div className="text-8xl font-bold text-red-400">
+              {(crashPoint ?? 0).toFixed(2)}x
+            </div>
+            {showCrashUI && (
+              <div className="text-red-400 text-2xl mt-4 animate-pulse">
+                FLEW AWAY!
+              </div>
+            )}
+          </div>
+        );
+      case 'wait':
+        return (
+          <div className="text-center">
+            <div className="text-8xl font-bold text-red-400">
+              {(crashPoint ?? 0).toFixed(2)}x
             </div>
             {showCrashUI && (
               <div className="text-red-400 text-2xl mt-4 animate-pulse">
@@ -631,64 +765,105 @@ function App({ user, setUser }: AppProps) {
     setUser(null);
   };
 
-  // On mount, randomly determine if user joins during betting, flying, or crashed phase
+  // Initialize multiplier batch and previous multipliers on mount
   useEffect(() => {
-    if (crashPoint !== null) return; // Only run on first mount
-    const phases: GamePhase[] = ['betting', 'flying', 'crashed'];
-    const phase = phases[Math.floor(Math.random() * phases.length)];
-    if (phase === 'betting') {
-      setGamePhase('betting');
-      setCountdown(Math.floor(Math.random() * BETTING_PHASE_DURATION));
-      setCrashPoint(null);
-      setCurrentMultiplier(1.00);
-    } else if (phase === 'flying') {
-      const newCrashPoint = generateCrashMultiplier();
-      setCrashPoint(newCrashPoint);
-      // Pick a random multiplier between 1.01 and just before crashPoint
-      const progress = Math.random();
-      const current = +(1.01 + progress * (newCrashPoint - 1.01 - 0.01)).toFixed(2);
-      setCurrentMultiplier(current);
-      setGamePhase('flying');
-      setCountdown(0);
-    } else {
-      // crashed
-      const newCrashPoint = generateCrashMultiplier();
-      setCrashPoint(newCrashPoint);
-      setCurrentMultiplier(newCrashPoint);
-      setGamePhase('crashed');
-      setCountdown(0);
-      setShowCrashUI(true);
-    }
-  }, []);
-
-  // On phase change, persist round state
-  useEffect(() => {
-    if (gamePhase && crashPoint !== null) {
-      const now = Date.now();
-      if (gamePhase === 'betting') {
-        saveRoundState({
-          phase: 'betting',
-          crashPoint,
-          roundStartTime: now,
-          bettingEndTime: now + countdown * 1000,
-        });
-      } else if (gamePhase === 'flying') {
-        saveRoundState({
-          phase: 'flying',
-          crashPoint,
-          roundStartTime: now - ((currentMultiplier - 1.00) / ((crashPoint - 1.00) / (BETTING_PHASE_DURATION * 1000))) || now,
-          bettingEndTime: null,
-        });
-      } else if (gamePhase === 'crashed') {
-        saveRoundState({
-          phase: 'crashed',
-          crashPoint,
-          roundStartTime: now,
-          bettingEndTime: null,
-        });
+    const initializeGame = async () => {
+      setIsLoadingBatch(true);
+      
+      try {
+        // Always calculate current round from time
+        const round = getCurrentRound(START_TIME, ROUND_DURATION);
+        setCurrentRound(round);
+        
+        // Fetch initial batch of multipliers
+        const batch = await fetchMultiplierBatch(round, BATCH_SIZE);
+        console.log('Multiplier batch response:', batch);
+        setMultiplierBatch(batch);
+        setBatchIndex(0);
+        
+        // After fetching batch, determine the phase and multiplier based on elapsed time in the round
+        const roundStart = START_TIME + round * ROUND_DURATION;
+        const now = Date.now();
+        const elapsedMs = now - roundStart;
+        const crashPoint = batch[0]?.multiplier;
+        setCrashPoint(crashPoint);
+        function estimateTimeToMultiplier(target: number): number {
+          const baseTime = 8;
+          const scaledTime = baseTime * Math.pow(target / 2, 0.5);
+          return Math.max(scaledTime, 3);
+        }
+        function getMultiplier(elapsedMs: number, target: number, totalTimeToCrash: number): number {
+          const elapsedSec = elapsedMs / 1000;
+          const adjustedTime = totalTimeToCrash * 1.5;
+          const growthRate = Math.exp(Math.log(target) / adjustedTime);
+          let multiplier = Math.pow(growthRate, elapsedSec);
+          multiplier = Math.min(multiplier, target);
+          return parseFloat(multiplier.toFixed(2));
+        }
+        if (elapsedMs < BETTING_PHASE_DURATION * 1000) {
+          setGamePhase('betting');
+          setCountdown(Math.ceil((BETTING_PHASE_DURATION * 1000 - elapsedMs) / 1000));
+          setCurrentMultiplier(1.00);
+        } else if (crashPoint && crashPoint < 1.03) {
+          setGamePhase('crashed');
+          setCurrentMultiplier(crashPoint);
+          setShowCrashUI(true);
+        } else if (crashPoint) {
+          const timeToCrash = estimateTimeToMultiplier(crashPoint);
+          if (elapsedMs < BETTING_PHASE_DURATION * 1000 + timeToCrash * 1000) {
+            setGamePhase('flying');
+            const flyingElapsed = elapsedMs - BETTING_PHASE_DURATION * 1000;
+            setCurrentMultiplier(getMultiplier(flyingElapsed, crashPoint, timeToCrash));
+          } else {
+            setGamePhase('crashed');
+            setCurrentMultiplier(crashPoint);
+            setShowCrashUI(true);
+          }
+        }
+        
+        // Fetch previous multipliers from backend using existing endpoint
+        try {
+          // Get the last 10 multipliers before current round
+          const from = Math.max(0, round - 10);
+          const to = round - 1;
+          console.log('Fetching previous multipliers from rounds', from, 'to', to);
+          const res = await fetch(`${BACKEND_URL}/api/multipliers?from=${from}&to=${to}`);
+          console.log('Previous multipliers response status:', res.status);
+          if (res.ok) {
+            const data = await res.json();
+            console.log('Previous multipliers raw data:', data);
+            // Convert to the format expected by the UI - reverse to show most recent first
+            const previous = data.reverse().map((item: any) => ({
+              value: item.multiplier,
+              color: item.multiplier < 2 ? 'text-red-400' : 
+                     item.multiplier < 5 ? 'text-green-400' :
+                     item.multiplier < 10 ? 'text-blue-400' : 
+                     item.multiplier < 20 ? 'text-purple-400' : 'text-pink-400'
+            }));
+            console.log('Previous multipliers processed:', previous);
+            setPreviousMultipliers(previous);
+          } else {
+            console.warn('Failed to fetch previous multipliers, showing empty list');
+            setPreviousMultipliers([]);
+          }
+        } catch (e) {
+          console.error('Error fetching previous multipliers:', e);
+          setPreviousMultipliers([]);
+        }
+      } catch (error) {
+        console.error('Failed to initialize game:', error);
+        // Set default values to prevent app crash
+        setMultiplierBatch([]);
+        setBatchIndex(0);
+        setCurrentRound(0);
+        setPreviousMultipliers([]);
+      } finally {
+        setIsLoadingBatch(false);
       }
-    }
-  }, [gamePhase, crashPoint, countdown, currentMultiplier]);
+    };
+    
+    initializeGame();
+  }, []);
 
   // On mount, restore round state if available
   useEffect(() => {
@@ -805,6 +980,17 @@ function App({ user, setUser }: AppProps) {
     }
   }, [showBetHistory, user.id]);
 
+  // Show loading screen while initializing
+  if (isLoadingBatch) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <style>{`
@@ -818,17 +1004,24 @@ function App({ user, setUser }: AppProps) {
         <HamburgerMenu onLogout={handleLogout} onShowHistory={() => setShowBetHistory(true)} />
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-center justify-between p-2 sm:p-4 border-b border-zinc-800 gap-2 sm:gap-0">
-          {/* Responsive mainlogo: left on mobile, centered on large screens */}
+          {/* Responsive logo: left */}
           <div className="flex items-center w-full">
-            <div className="flex-1 flex lg:justify-center justify-start">
+            <div className="flex-1 flex justify-start items-center gap-1 sm:gap-2 flex-wrap">
               <img
-                src="/hybridlogo.png"
-                alt="Hybrid Logo"
-                className="w-52 max-w-[260px] h-16 sm:h-20 object-contain"
+                src="/logo.png"
+                alt="Logo"
+                className="w-24 h-8 sm:w-40 sm:h-16 max-w-[120px] sm:max-w-[180px] object-contain"
+                draggable="false"
+              />
+              <img
+                src="/mainlogo.png"
+                alt="Main Logo"
+                className="w-20 h-8 sm:w-40 sm:h-16 max-w-[100px] sm:max-w-[180px] object-contain"
                 draggable="false"
               />
             </div>
           </div>
+          {/* Balance section on the right */}
           <div className="flex items-center gap-1 mr-10 sm:mr-16">
             {/* Deposit button to the left */}
             <button
@@ -929,29 +1122,32 @@ function App({ user, setUser }: AppProps) {
                 {/* Live Indicator and Tournament */}
                 <div className="flex flex-col sm:flex-row items-center justify-between mb-2 sm:mb-4 gap-2 sm:gap-0">
                   <div className="flex items-center space-x-1 sm:space-x-2">
-                    <div className={`w-2 h-2 rounded-full ${gamePhase === 'flying' ? 'bg-green-500 animate-pulse' : gamePhase === 'betting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></div>
+                    <div className={`w-2 h-2 rounded-full ${gamePhase === 'flying' ? 'bg-green-500 animate-pulse' : gamePhase === 'betting' ? 'bg-yellow-500 animate-pulse' : gamePhase === 'wait' ? 'bg-orange-500 animate-pulse' : 'bg-red-500'}`}></div>
                     <span className="text-xs sm:text-sm font-semibold">
-                      {gamePhase === 'flying' ? 'LIVE' : gamePhase === 'betting' ? 'BETTING' : 'CRASHED'}
+                      {gamePhase === 'flying' ? 'LIVE' : gamePhase === 'betting' ? 'BETTING' : gamePhase === 'wait' ? 'WAIT' : 'CRASHED'}
                     </span>
+                    <span className="ml-2 text-xs sm:text-sm text-zinc-400 font-mono">Round {currentRound !== null ? currentRound : '...'}</span>
                   </div>
                   <div className="text-purple-400 text-xs sm:text-sm font-medium">
                     xTournament: Collect Highest Multiplier
                   </div>
                 </div>
-                {/* Previous Multipliers */}
-                <div className="mb-2 sm:mb-6 overflow-hidden">
-                  <ScrollArea className="w-full">
-                    <div className="flex space-x-1 sm:space-x-3 pb-2">
-                      {previousMultipliers.map((mult, index) => (
-                        <div
-                          key={index}
-                          className={`${mult.color} text-xs sm:text-sm font-semibold whitespace-nowrap px-1 sm:px-2 py-1 rounded bg-zinc-800/50`}
-                        >
-                          {mult.value.toFixed(2)}x
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
+
+                {/* Previous multipliers as colored chips */}
+                <div className="flex flex-row gap-1 mb-4">
+                  {previousMultipliers.length > 0 ? (
+                    previousMultipliers.slice(0, 10).map((m, i) => (
+                      <span
+                        key={i}
+                        className={`px-2 py-0.5 rounded-full font-mono text-xs font-bold border border-zinc-700 ${m.color}`}
+                        style={{ minWidth: 44, textAlign: 'center' }}
+                      >
+                        {m.value.toFixed(2)}x
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-zinc-500 text-xs">No previous multipliers</span>
+                  )}
                 </div>
                 {/* Main Game Area */}
                 <div className="flex-1 flex items-center justify-center relative min-h-[180px]">
@@ -1078,7 +1274,7 @@ function App({ user, setUser }: AppProps) {
                         onClick={() => setQueuedBetAmount(null)}
                         className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-red-600 text-white rounded-full border-none focus:outline-none"
                       >
-                        Queued
+                        Waiting for Next round
                       </Button>
                     ) : (
                       <Button
