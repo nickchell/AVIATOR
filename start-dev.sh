@@ -20,7 +20,7 @@ FRONTEND_PID=$!
 echo
 echo "All services are starting..."
 echo "- Socket.IO Server: https://aviator-socket-server.onrender.com"
-echo "- Backend API: https://aviator-backend-rouq.onrender.com"
+echo "- Backend API: https://aviator-backend-vtww.onrender.com"
 echo "- Frontend: http://localhost:5173"
 echo
 echo "Press Ctrl+C to stop all services"
