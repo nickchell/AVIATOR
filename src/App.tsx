@@ -66,7 +66,7 @@ const BETTING_PHASE_DURATION = 6; // seconds
 const WAIT_PHASE_DURATION = 3; // seconds for wait phase between rounds
 
 // Socket.IO configuration
-const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:3001';
+const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'https://aviator-socket-server.onrender.com';
 
 // Mock player IDs (no avatars)
 const MOCK_PLAYERS = [

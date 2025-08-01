@@ -40,7 +40,7 @@ Create a `.env` file in your project root for the backend:
 # Backend Configuration
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_KEY=your_supabase_service_key
-SOCKET_SERVER_URL=http://localhost:3001
+SOCKET_SERVER_URL=https://aviator-socket-server.onrender.com
 SOCKET_SERVER_SECRET=your-secret-token-here
 ```
 
