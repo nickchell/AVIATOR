@@ -5,13 +5,37 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Minus, Plus, Timer } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
+import { io } from 'socket.io-client';
 
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
 import { v4 as uuidv4 } from 'uuid';
-import { BACKEND_URL, getCurrentRound, fetchMultiplierBatch } from './lib/utils';
+// Removed BACKEND_URL import as it's no longer needed with Socket.IO
 
 type GamePhase = 'betting' | 'flying' | 'crashed' | 'wait';
+
+// Socket.IO event interfaces
+interface GameStateData {
+  phase: GamePhase;
+  currentRound: number;
+  currentMultiplier: number;
+  crashPoint: number | null;
+}
+
+interface RoundStartData {
+  round: number;
+  crashPoint: number;
+}
+
+interface MultiplierUpdateData {
+  round: number;
+  multiplier: number;
+}
+
+interface RoundCrashData {
+  round: number;
+  crashPoint: number;
+}
 
 interface AppProps {
   user: {
@@ -35,19 +59,14 @@ interface Bet {
   isUserBet?: boolean;
 }
 
-interface PreviousMultiplier {
-  value: number;
-  color: string;
-}
+// PreviousMultiplier interface removed - no longer needed with Socket.IO integration
 
 // Update preset amounts
 const BETTING_PHASE_DURATION = 6; // seconds
 const WAIT_PHASE_DURATION = 3; // seconds for wait phase between rounds
 
-// Backend configuration
-const ROUND_DURATION = 10000; // 10 seconds per round in milliseconds
-const START_TIME = Date.UTC(2025, 6, 26, 0, 0, 0); // July 26, 2025, 00:00:00 UTC
-const BATCH_SIZE = 100; // Number of multipliers to fetch at once
+// Socket.IO configuration
+const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:3001';
 
 // Mock player IDs (no avatars)
 const MOCK_PLAYERS = [
@@ -58,16 +77,9 @@ const MOCK_PLAYERS = [
   '5***1', '5***2', '5***3', '5***4', '5***5',
 ];
 
-// Utility to persist round state
-function loadRoundState() {
-  const raw = localStorage.getItem('aviator_round_state');
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
+// Remove localStorage functions - we get state from socket server now
+// function loadRoundState() { ... }
+// function saveRoundState() { ... }
 
 // Remove local getCurrentRound and fetchMultiplierBatch implementations from this file.
 
@@ -77,29 +89,42 @@ function App({ user, setUser }: AppProps) {
   const [waitCountdown, setWaitCountdown] = useState<number>(WAIT_PHASE_DURATION);
   const [currentMultiplier, setCurrentMultiplier] = useState<number>(1.00);
   
-  // Multiplier batch management
-  const [multiplierBatch, setMultiplierBatch] = useState<Array<{ round_number: number, multiplier: number }>>([]);
-  const [batchIndex, setBatchIndex] = useState<number>(0);
+  // Socket.IO connection
+  const [isConnected, setIsConnected] = useState<boolean>(false);
   const [currentRound, setCurrentRound] = useState<number>(0);
-  const [isLoadingBatch, setIsLoadingBatch] = useState<boolean>(false);
+  const currentRoundRef = useRef<number>(0); // Add ref to track current round
   
   // Always use user.balance from props. No local balance state.
 
   // Update balance in Supabase and refetch user
   const updateBalance = async (newBalance: number) => {
-    const { error } = await supabase.from('users').update({ balance: newBalance }).eq('id', user.id);
-    if (!error) {
-      const { data: freshUser } = await supabase.from('users').select('*').eq('id', user.id).single();
-      if (freshUser) setUser(freshUser);
-    } else {
-      console.error('Supabase update error:', error);
-    }
+    setUser((prev: any) => ({ ...prev, balance: newBalance }));
+    // Update balance in database
+    const { error } = await supabase
+      .from('users')
+      .update({ balance: newBalance })
+      .eq('id', user.id);
+    if (error) console.error('Error updating balance:', error);
+  };
+
+  // Handle deposit - redirect to Paystack with prefilled amount
+  const handleDeposit = () => {
+    if (!depositAmount || Number(depositAmount) < 1) return;
+    
+    // Redirect to Paystack payment page with prefilled amount
+    const paystackUrl = `https://paystack.shop/pay/-gccg7xh6n?amount=${depositAmount}`;
+    window.open(paystackUrl, '_blank');
+    
+    // Close deposit modal
+    setShowDeposit(false);
+    setDepositAmount('');
   };
   // Set default bet amount to 10
   const [betAmount, setBetAmount] = useState<number>(10);
   const [userBet, setUserBet] = useState<Bet | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
-  const [previousMultipliers, setPreviousMultipliers] = useState<PreviousMultiplier[]>([]);
+  // Note: previousMultipliers functionality removed with Socket.IO integration
+  // Will be re-implemented if needed for historical data display
   const [totalBets, setTotalBets] = useState<number>(0);
   const [displayedBetCount, setDisplayedBetCount] = useState<number>(0);
   const [progress, setProgress] = useState(0);
@@ -160,6 +185,12 @@ function App({ user, setUser }: AppProps) {
   useEffect(() => {
     if (gamePhase !== 'crashed') setShowCrashUI(false);
   }, [gamePhase]);
+
+  // Debug currentRound changes
+  useEffect(() => {
+    console.log(`🔄 currentRound changed to: ${currentRound}`);
+    currentRoundRef.current = currentRound; // Update ref whenever currentRound changes
+  }, [currentRound]);
 
   useEffect(() => {
     if (!audioEnabled) {
@@ -252,7 +283,7 @@ function App({ user, setUser }: AppProps) {
   useEffect(() => {
     if (gamePhase === 'flying' && crashPoint !== null) {
       betUpdateIntervalRef.current = setInterval(() => {
-        setBets(prevBets => {
+        setBets((prevBets: Bet[]) => {
           return prevBets.map(bet => {
             // Skip user bets and already cashed out bets
             if (bet.isUserBet || bet.cashedOut !== undefined) {
@@ -274,8 +305,13 @@ function App({ user, setUser }: AppProps) {
         });
         
         // Auto cashout logic for user bet
-        if (autoCashoutEnabled && userBet && !userBet.cashedOut && currentMultiplier >= autoCashoutValue) {
+        if (autoCashoutEnabled && userBet && !userBet.cashedOut && currentMultiplier >= autoCashoutValue && crashPoint && currentMultiplier < crashPoint) {
           handleCashOut();
+          toast({
+            title: "Auto Cashout!",
+            description: `Cashed out at ${currentMultiplier.toFixed(2)}x for ${Math.floor(userBet.amount * currentMultiplier)} KES`,
+            duration: 3000,
+          });
         }
       }, 100); // Update every 100ms for smooth real-time experience
       
@@ -321,7 +357,7 @@ function App({ user, setUser }: AppProps) {
   useEffect(() => {
     if (gamePhase === 'betting' && countdown > 0) {
       const timer = setTimeout(() => {
-        setCountdown(prev => prev - 1);
+        setCountdown((prev: number) => prev - 1);
       }, 1000);
       return () => clearTimeout(timer);
     } else if (gamePhase === 'betting' && countdown === 0) {
@@ -329,21 +365,14 @@ function App({ user, setUser }: AppProps) {
     }
   }, [gamePhase, countdown]);
 
-  // When entering the flying phase, use multiplier from batch and generate mock bets ONCE
+  // When entering the flying phase, generate mock bets ONCE
   useEffect(() => {
-    if (gamePhase === 'flying') {
-      // Use multiplier from current batch index only
-      const currentBatchMultiplier = multiplierBatch[batchIndex]?.multiplier;
-      if (!currentBatchMultiplier) {
-        console.error('No multiplier available in batch for flying phase');
-        return;
-      }
-      setCrashPoint(currentBatchMultiplier);
+    if (gamePhase === 'flying' && crashPoint) {
       setCurrentMultiplier(1.00);
       
       // Generate mock bets for this round
-      const { bets: mockBets, totalBets } = generateMockBets(currentBatchMultiplier);
-      setBets(_prev => {
+      const { bets: mockBets, totalBets } = generateMockBets(crashPoint);
+      setBets((_prev: Bet[]) => {
         const allBets = [...mockBets];
         if (userBet) {
           allBets.unshift(userBet);
@@ -352,16 +381,16 @@ function App({ user, setUser }: AppProps) {
       });
       setTotalBets(totalBets);
     }
-  }, [gamePhase, generateMockBets, userBet, multiplierBatch, batchIndex]);
+  }, [gamePhase, generateMockBets, userBet, crashPoint]);
 
   // When entering the betting phase, optionally generate new mock bets for the next round (if you want to show bets during betting phase)
   useEffect(() => {
     if (gamePhase === 'betting') {
-      setCrashPoint(null);
+      // Don't reset crashPoint here - keep the crash value visible
       setCurrentMultiplier(1.00);
       // Optionally, generate mock bets for betting phase (with no crashPoint yet)
       const { bets: mockBets, totalBets } = generateMockBets(null);
-      setBets(_prev => {
+      setBets((_prev: Bet[]) => {
         const allBets = [...mockBets];
         if (userBet) {
           allBets.unshift(userBet);
@@ -372,8 +401,7 @@ function App({ user, setUser }: AppProps) {
     }
   }, [gamePhase, generateMockBets, userBet]);
 
-  // Use a ref for the flying phase interval
-  const flyingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Note: flyingIntervalRef removed - Socket.IO handles multiplier updates
 
   // Only reset multiplier to 1.00 when entering flying phase
   useEffect(() => {
@@ -382,74 +410,18 @@ function App({ user, setUser }: AppProps) {
     }
   }, [gamePhase]);
 
-  // In the flying phase multiplier update effect, animate towards the batch multiplier
+  // Handle flying phase transition (Socket.IO will handle multiplier updates)
   useEffect(() => {
-    // Always clear interval before starting
-    if (flyingIntervalRef.current) {
-      clearInterval(flyingIntervalRef.current);
-      flyingIntervalRef.current = null;
-    }
     if (gamePhase === 'flying' && crashPoint !== null) {
-      // Time estimation function for realistic speed
-      function estimateTimeToMultiplier(target: number): number {
-        const baseTime = 8;
-        const scaledTime = baseTime * Math.pow(target / 2, 0.5);
-        return Math.max(scaledTime, 3);
-      }
-      const startTime = Date.now();
-      const totalTimeToCrash = estimateTimeToMultiplier(crashPoint);
-      function getMultiplier(elapsedMs: number, target: number, totalTimeToCrash: number): number {
-        const elapsedSec = elapsedMs / 1000;
-        const adjustedTime = totalTimeToCrash * 1.5;
-        const growthRate = Math.exp(Math.log(target) / adjustedTime);
-        let multiplier = Math.pow(growthRate, elapsedSec);
-        multiplier = Math.min(multiplier, target);
-        return parseFloat(multiplier.toFixed(2));
-      }
-      // INSTANT CRASH for <1.03
-      if (crashPoint < 1.03) {
-        setCurrentMultiplier(crashPoint);
-        setGamePhase('crashed');
-        setShowCrashUI(true);
-        return;
-      }
-      flyingIntervalRef.current = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const newValue = getMultiplier(elapsed, crashPoint, totalTimeToCrash);
-        setCurrentMultiplier(prevValue => {
-          if (Math.abs(newValue - prevValue) >= 0.01) {
-            return parseFloat(newValue.toFixed(2));
-          }
-          return prevValue;
-        });
-        // End the round only when the multiplier reaches the crash point
-        if (crashPoint && newValue >= crashPoint) {
-          setCurrentMultiplier(crashPoint);
-          setGamePhase('crashed');
-          setShowCrashUI(true);
-          if (audioEnabled && crashAudioRef.current && !crashSoundPlayedRef.current && crashPoint >= 1.03) {
-            crashAudioRef.current.currentTime = 0.02;
-            crashAudioRef.current.play().catch(() => {});
-            crashSoundPlayedRef.current = true;
-          }
-          if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
-          flyingIntervalRef.current = null;
-        }
-      }, 50);
-      return () => {
-        if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
-        flyingIntervalRef.current = null;
-      };
-    } else {
-      if (flyingIntervalRef.current) clearInterval(flyingIntervalRef.current);
-      flyingIntervalRef.current = null;
+      // Socket.IO will handle multiplier updates
+      setCurrentMultiplier(1.00);
     }
   }, [gamePhase, crashPoint]);
 
-  // Remove the duplicate crash phase effect and merge logic into a single useEffect
+  // Handle crash phase
   useEffect(() => {
     if (gamePhase === 'crashed' && crashPoint !== null) {
-      setBets(prevBets => prevBets.map(bet => {
+      setBets((prevBets: Bet[]) => prevBets.map(bet => {
         if (bet.isUserBet || bet.cashedOut !== undefined) return bet;
         // Win: cashed out before or at crash
         if (bet.cashoutMultiplier && bet.cashoutMultiplier <= crashPoint) {
@@ -470,62 +442,23 @@ function App({ user, setUser }: AppProps) {
         }
       }));
 
-      // Refetch previous multipliers after each round ends
-      (async () => {
-        try {
-          const from = Math.max(0, currentRound - 9); // include the just-ended round
-          const to = currentRound;
-          const res = await fetch(`${BACKEND_URL}/api/multipliers?from=${from}&to=${to}`);
-          if (res.ok) {
-            const data = await res.json();
-            const previous = data.reverse().map((item: any) => ({
-              value: item.multiplier,
-              color: item.multiplier < 2 ? 'text-red-400' : 
-                     item.multiplier < 5 ? 'text-green-400' :
-                     item.multiplier < 10 ? 'text-blue-400' : 
-                     item.multiplier < 20 ? 'text-purple-400' : 'text-pink-400'
-            }));
-            setPreviousMultipliers(previous);
-          } else {
-            setPreviousMultipliers([]);
-          }
-        } catch (e) {
-          setPreviousMultipliers([]);
-        }
-      })();
-
       // Start next round after crash phase
-      const timer = setTimeout(async () => {
-        // Advance to next round
-        const nextBatchIndex = batchIndex + 1;
-        setBatchIndex(nextBatchIndex);
-        
-        // Update current round number
-        const nextRound = currentRound + 1;
-        setCurrentRound(nextRound);
-        
-        // Check if we need to fetch more multipliers
-        if (nextBatchIndex >= multiplierBatch.length - 3) {
-          const nextBatchStartRound = currentRound + multiplierBatch.length;
-          const newBatch = await fetchMultiplierBatch(nextBatchStartRound, BATCH_SIZE);
-          setMultiplierBatch(prev => [...prev, ...newBatch]);
-        }
-        
+      const timer = setTimeout(() => {
         setGamePhase('wait');
         setWaitCountdown(WAIT_PHASE_DURATION);
-        setCurrentMultiplier(1.00);
+        // Don't reset multiplier here - keep crash value visible
         setUserBet(null);
       }, 2000); // 2 seconds to show crash result
 
       return () => clearTimeout(timer);
     }
-  }, [gamePhase, crashPoint, batchIndex, multiplierBatch.length, currentRound]);
+  }, [gamePhase, crashPoint]);
 
   // Handle wait phase countdown
   useEffect(() => {
     if (gamePhase === 'wait' && waitCountdown > 0) {
       const timer = setTimeout(() => {
-        setWaitCountdown(prev => prev - 1);
+        setWaitCountdown((prev: number) => prev - 1);
       }, 1000);
       return () => clearTimeout(timer);
     } else if (gamePhase === 'wait' && waitCountdown === 0) {
@@ -595,7 +528,7 @@ function App({ user, setUser }: AppProps) {
   };
 
   const adjustBetAmount = (delta: number) => {
-    setBetAmount(prev => Math.max(10, Math.min(prev + delta, user.balance)));
+    setBetAmount((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
   };
 
   const handleCashOut = () => {
@@ -616,9 +549,21 @@ function App({ user, setUser }: AppProps) {
       };
 
       setUserBet(cashedOutBet);
-      setBets(prev => prev.map(bet =>
+      setBets((prev: Bet[]) => prev.map(bet =>
         bet.id === userBet.id ? cashedOutBet : bet
       ));
+      
+      // Update bet in database
+      if (userBet.isUserBet) {
+        cashoutBetInDb(currentMultiplier, winAmount);
+      }
+      
+      // Show success toast
+      toast({
+        title: "Cashout Successful!",
+        description: `Cashed out at ${currentMultiplier.toFixed(2)}x for ${winAmount} KES`,
+        duration: 3000,
+      });
     }
   };
 
@@ -727,19 +672,20 @@ function App({ user, setUser }: AppProps) {
       case 'flying':
         return (
           <div className="text-center">
-            <div className="text-8xl font-bold text-white">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-white leading-none">
               {currentMultiplier.toFixed(2)}x
             </div>
           </div>
         );
       case 'crashed':
+        console.log(`🎯 CRASH UI: crashPoint = ${crashPoint}, showing ${(crashPoint ?? 0).toFixed(2)}x`);
         return (
           <div className="text-center">
-            <div className="text-8xl font-bold text-red-400">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-400 leading-none">
               {(crashPoint ?? 0).toFixed(2)}x
             </div>
             {showCrashUI && (
-              <div className="text-red-400 text-2xl mt-4 animate-pulse">
+              <div className="text-red-400 text-lg sm:text-xl md:text-2xl mt-2 sm:mt-4 animate-pulse">
                 FLEW AWAY!
               </div>
             )}
@@ -748,11 +694,11 @@ function App({ user, setUser }: AppProps) {
       case 'wait':
         return (
           <div className="text-center">
-            <div className="text-8xl font-bold text-red-400">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-400 leading-none">
               {(crashPoint ?? 0).toFixed(2)}x
             </div>
             {showCrashUI && (
-              <div className="text-red-400 text-2xl mt-4 animate-pulse">
+              <div className="text-red-400 text-lg sm:text-xl md:text-2xl mt-2 sm:mt-4 animate-pulse">
                 FLEW AWAY!
               </div>
             )}
@@ -761,142 +707,104 @@ function App({ user, setUser }: AppProps) {
     }
   };
 
-  const canCashOut = gamePhase === 'flying' && userBet && !userBet.cashedOut;
+  const canCashOut = gamePhase === 'flying' && userBet && !userBet.cashedOut && crashPoint && currentMultiplier < crashPoint;
 
   // Logout handler
   const handleLogout = () => {
     setUser(null);
   };
 
-  // Initialize multiplier batch and previous multipliers on mount
+  // Initialize Socket.IO connection on mount
   useEffect(() => {
-    const initializeGame = async () => {
-      setIsLoadingBatch(true);
-      
-      try {
-        // Always calculate current round from time
-        const round = getCurrentRound(START_TIME, ROUND_DURATION);
-        setCurrentRound(round);
-        
-        // Fetch initial batch of multipliers
-        const batch = await fetchMultiplierBatch(round, BATCH_SIZE);
-        console.log('Multiplier batch response:', batch);
-        setMultiplierBatch(batch);
-        setBatchIndex(0);
-        
-        // After fetching batch, determine the phase and multiplier based on elapsed time in the round
-        const roundStart = START_TIME + round * ROUND_DURATION;
-        const now = Date.now();
-        const elapsedMs = now - roundStart;
-        const crashPoint = batch[0]?.multiplier;
-        setCrashPoint(crashPoint);
-        function estimateTimeToMultiplier(target: number): number {
-          const baseTime = 8;
-          const scaledTime = baseTime * Math.pow(target / 2, 0.5);
-          return Math.max(scaledTime, 3);
-        }
-        function getMultiplier(elapsedMs: number, target: number, totalTimeToCrash: number): number {
-          const elapsedSec = elapsedMs / 1000;
-          const adjustedTime = totalTimeToCrash * 1.5;
-          const growthRate = Math.exp(Math.log(target) / adjustedTime);
-          let multiplier = Math.pow(growthRate, elapsedSec);
-          multiplier = Math.min(multiplier, target);
-          return parseFloat(multiplier.toFixed(2));
-        }
-        if (elapsedMs < BETTING_PHASE_DURATION * 1000) {
-          setGamePhase('betting');
-          setCountdown(Math.ceil((BETTING_PHASE_DURATION * 1000 - elapsedMs) / 1000));
-          setCurrentMultiplier(1.00);
-        } else if (crashPoint && crashPoint < 1.03) {
-          setGamePhase('crashed');
-          setCurrentMultiplier(crashPoint);
-          setShowCrashUI(true);
-        } else if (crashPoint) {
-          const timeToCrash = estimateTimeToMultiplier(crashPoint);
-          if (elapsedMs < BETTING_PHASE_DURATION * 1000 + timeToCrash * 1000) {
-            setGamePhase('flying');
-            const flyingElapsed = elapsedMs - BETTING_PHASE_DURATION * 1000;
-            setCurrentMultiplier(getMultiplier(flyingElapsed, crashPoint, timeToCrash));
-          } else {
-            setGamePhase('crashed');
-            setCurrentMultiplier(crashPoint);
-            setShowCrashUI(true);
-          }
-        }
-        
-        // Fetch previous multipliers from backend using existing endpoint
-        try {
-          // Get the last 10 multipliers before current round
-          const from = Math.max(0, round - 10);
-          const to = round - 1;
-          console.log('Fetching previous multipliers from rounds', from, 'to', to);
-          const res = await fetch(`${BACKEND_URL}/api/multipliers?from=${from}&to=${to}`);
-          console.log('Previous multipliers response status:', res.status);
-          if (res.ok) {
-            const data = await res.json();
-            console.log('Previous multipliers raw data:', data);
-            // Convert to the format expected by the UI - reverse to show most recent first
-            const previous = data.reverse().map((item: any) => ({
-              value: item.multiplier,
-              color: item.multiplier < 2 ? 'text-red-400' : 
-                     item.multiplier < 5 ? 'text-green-400' :
-                     item.multiplier < 10 ? 'text-blue-400' : 
-                     item.multiplier < 20 ? 'text-purple-400' : 'text-pink-400'
-            }));
-            console.log('Previous multipliers processed:', previous);
-            setPreviousMultipliers(previous);
-          } else {
-            console.warn('Failed to fetch previous multipliers, showing empty list');
-            setPreviousMultipliers([]);
-          }
-        } catch (e) {
-          console.error('Error fetching previous multipliers:', e);
-          setPreviousMultipliers([]);
-        }
-      } catch (error) {
-        console.error('Failed to initialize game:', error);
-        // Set default values to prevent app crash
-        setMultiplierBatch([]);
-        setBatchIndex(0);
-        setCurrentRound(0);
-        setPreviousMultipliers([]);
-      } finally {
-        setIsLoadingBatch(false);
-      }
-    };
-    
-    initializeGame();
-  }, []);
+    const newSocket = io(SOCKET_SERVER_URL);
 
-  // On mount, restore round state if available
-  useEffect(() => {
-    const state = loadRoundState();
-    if (!state) return;
-    const now = Date.now();
-    if (state.phase === 'betting') {
-      const remaining = Math.max(0, Math.floor((state.bettingEndTime - now) / 1000));
-      setCrashPoint(state.crashPoint);
-      setGamePhase('betting');
-      setCountdown(remaining);
-      setCurrentMultiplier(1.00);
-    } else if (state.phase === 'flying') {
-      const elapsed = (now - state.roundStartTime) / 1000;
-      setCrashPoint(state.crashPoint);
+    // Connection events
+    newSocket.on('connect', () => {
+      console.log('🔌 Connected to Socket.IO server');
+      setIsConnected(true);
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('🔌 Disconnected from Socket.IO server');
+      setIsConnected(false);
+    });
+
+    // Game state events
+    newSocket.on('game:state', (data: GameStateData) => {
+      console.log(`📊 Received game state: round ${data.currentRound}, phase ${data.phase}, current frontend round ${currentRound}`);
+      setGamePhase(data.phase);
+      setCurrentRound(data.currentRound);
+      setCurrentMultiplier(data.currentMultiplier);
+      setCrashPoint(data.crashPoint);
+    });
+
+    newSocket.on('round:info', (data: any) => {
+      console.log(`📋 Round info: ${data.round}, phase ${data.phase}, multiplier ${data.multiplier}`);
+      setCurrentRound(data.round);
+      setGamePhase(data.phase);
+      setCurrentMultiplier(data.multiplier);
+      setCrashPoint(data.crashPoint);
+    });
+
+    newSocket.on('round:flying', (data: any) => {
+      console.log(`✈️ Joining flying round: ${data.round}, multiplier ${data.multiplier}`);
+      setCurrentRound(data.round);
       setGamePhase('flying');
-      // Estimate multiplier based on elapsed time and crashPoint
-      const duration = BETTING_PHASE_DURATION; // seconds
-      const maxMultiplier = state.crashPoint;
-      const progress = Math.min(1, elapsed / duration);
-      const multiplier = +(1.00 + progress * (maxMultiplier - 1.00)).toFixed(2);
-      setCurrentMultiplier(multiplier);
+      setCurrentMultiplier(data.multiplier);
+      setCrashPoint(data.crashPoint);
       setCountdown(0);
-    } else if (state.phase === 'crashed') {
-      setCrashPoint(state.crashPoint);
-      setGamePhase('crashed');
-      setCurrentMultiplier(state.crashPoint);
-      setCountdown(0);
-      setShowCrashUI(true);
-    }
+    });
+
+    newSocket.on('round:start', (data: RoundStartData) => {
+      console.log(`🎮 Round started: ${data.round}, current frontend round ${currentRoundRef.current}`);
+      console.log(`🎯 Setting currentRound from ${currentRoundRef.current} to ${data.round}`);
+      setCurrentRound(data.round);
+      setCrashPoint(data.crashPoint);
+      setGamePhase('betting');
+      setCountdown(BETTING_PHASE_DURATION);
+      // Don't reset multiplier here - keep the crash value visible
+      setUserBet(null);
+    });
+
+    newSocket.on('multiplier:update', (data: MultiplierUpdateData) => {
+      // Debug: Log any suspicious multiplier values
+      if (data.multiplier === 0 || data.multiplier < 0.1) {
+        console.log(`🚨 SUSPICIOUS MULTIPLIER: round ${data.round}, multiplier ${data.multiplier}`);
+      }
+      
+      // Only log every 10th update or significant changes to reduce console spam
+      const shouldLog = data.multiplier % 0.5 < 0.02 || data.multiplier >= 2.0;
+      if (shouldLog) {
+        console.log(`📈 Multiplier update: round ${data.round}, multiplier ${data.multiplier}, current frontend round ${currentRoundRef.current}`);
+      }
+      
+      if (data.round === currentRoundRef.current) {
+        setCurrentMultiplier(data.multiplier);
+      } else {
+        console.log(`⚠️ Round mismatch: received ${data.round}, expected ${currentRoundRef.current}`);
+      }
+    });
+
+    newSocket.on('round:crash', (data: RoundCrashData) => {
+      if (data.round === currentRoundRef.current) {
+        console.log(`💥 CRASH: Setting crash point to ${data.crashPoint}x`);
+        setGamePhase('crashed');
+        setCurrentMultiplier(data.crashPoint);
+        setCrashPoint(data.crashPoint);
+        setShowCrashUI(true);
+      }
+    });
+
+    return () => {
+      newSocket.close();
+    };
+  }, []); // Remove currentRound dependency to prevent socket reconnection
+
+  // On mount, get current state from socket server instead of localStorage
+  useEffect(() => {
+    // Socket server will send current state on connection
+    // No need to restore from localStorage as it can cause desync
+    console.log(`📱 Connected to socket server, waiting for current state...`);
   }, []);
 
   // When entering betting phase, if queuedBetAmount is set, place the bet automatically and clear queuedBetAmount
@@ -983,12 +891,13 @@ function App({ user, setUser }: AppProps) {
     }
   }, [showBetHistory, user.id]);
 
-  // Show loading screen while initializing
-  if (isLoadingBatch) {
+  // Show loading screen while connecting to Socket.IO
+  if (!isConnected) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto mb-4"></div>
+          <div className="text-lg">Connecting to game server...</div>
         </div>
       </div>
     );
@@ -1003,52 +912,55 @@ function App({ user, setUser }: AppProps) {
         }
       `}</style>
       <div className="min-h-screen bg-zinc-950 text-white relative">
-        {/* Hamburger Menu */}
-        <HamburgerMenu onLogout={handleLogout} onShowHistory={() => setShowBetHistory(true)} />
         {/* Header */}
-        <div className="flex flex-col sm:flex-row items-center justify-between p-2 sm:p-4 border-b border-zinc-800 gap-2 sm:gap-0">
-          {/* Responsive logo: left */}
-          <div className="flex items-center w-full">
-            <div className="flex-1 flex justify-start items-center gap-1 sm:gap-2 flex-wrap">
-              <img
-                src="/logo.png"
-                alt="Logo"
-                className="w-24 h-8 sm:w-40 sm:h-16 max-w-[120px] sm:max-w-[180px] object-contain"
-                draggable="false"
-              />
-              <img
-                src="/mainlogo.png"
-                alt="Main Logo"
-                className="w-20 h-8 sm:w-40 sm:h-16 max-w-[100px] sm:max-w-[180px] object-contain"
-                draggable="false"
-              />
-            </div>
-          </div>
-          {/* Balance section on the right */}
-          <div className="flex items-center gap-1 mr-10 sm:mr-16">
-            {/* Deposit button to the left */}
-            <button
-              className="flex items-center justify-center bg-green-500 hover:bg-green-600 text-white font-bold rounded-full w-7 h-7 shadow border border-green-700 transition"
-              title="Deposit"
-              onClick={() => setShowDeposit(true)}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-            {/* Cool balance display */}
-            <button
-              className="flex items-center bg-gradient-to-r from-green-700 via-green-500 to-yellow-400 px-2 py-0.5 rounded-full shadow text-black font-bold text-sm sm:text-base border border-green-800 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition hover:brightness-105"
-              title="Withdraw"
-              onClick={() => setShowWithdraw(true)}
-              style={{ minWidth: 0 }}
-            >
-              <span className="mr-1 flex items-center">
-                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="text-yellow-300 mr-0.5">
-                  <circle cx="12" cy="12" r="10" strokeWidth="2" />
-                  <text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fde68a" fontWeight="400">KES</text>
-                </svg>
-                {user.balance.toFixed(2)}
-              </span>
-            </button>
+        <div className="flex items-center p-2 sm:p-4 border-b border-zinc-800 gap-2">
+          {/* 1st Logo */}
+          <img
+            src="/logo.png"
+            alt="Logo"
+            className="w-20 h-6 sm:w-40 sm:h-16 max-w-[100px] sm:max-w-[180px] object-contain flex-shrink-0"
+            draggable="false"
+          />
+          
+          {/* 2nd Logo */}
+          <img
+            src="/mainlogo.png"
+            alt="Main Logo"
+            className="w-16 h-6 sm:w-40 sm:h-16 max-w-[80px] sm:max-w-[180px] object-contain flex-shrink-0"
+            draggable="false"
+          />
+          
+          {/* Spacer to push remaining elements to the right */}
+          <div className="flex-1"></div>
+          
+          {/* Deposit button */}
+          <button
+            className="flex items-center justify-center bg-green-500 hover:bg-green-600 text-white font-bold rounded-full w-6 h-6 sm:w-7 sm:h-7 shadow border border-green-700 transition flex-shrink-0"
+            title="Deposit"
+            onClick={() => setShowDeposit(true)}
+          >
+            <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+          </button>
+          
+          {/* Balance */}
+          <button
+            className="flex items-center bg-gradient-to-r from-green-700 via-green-500 to-yellow-400 px-1.5 sm:px-2 py-0.5 rounded-full shadow text-black font-bold text-xs sm:text-base border border-green-800 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition hover:brightness-105 flex-shrink-0"
+            title="Withdraw"
+            onClick={() => setShowWithdraw(true)}
+            style={{ minWidth: 0 }}
+          >
+            <span className="mr-0.5 sm:mr-1 flex items-center">
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="text-yellow-300 mr-0.5 sm:w-4 sm:h-4">
+                <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                <text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fde68a" fontWeight="400">KES</text>
+              </svg>
+              <span className="text-xs sm:text-base">{user.balance.toFixed(2)}</span>
+            </span>
+          </button>
+          
+          {/* Hamburger Menu (3 dots) */}
+          <div className="flex-shrink-0">
+            <HamburgerMenu onLogout={handleLogout} onShowHistory={() => setShowBetHistory(true)} />
           </div>
         </div>
 
@@ -1138,19 +1050,7 @@ function App({ user, setUser }: AppProps) {
 
                 {/* Previous multipliers as colored chips */}
                 <div className="flex flex-row gap-1 mb-4">
-                  {previousMultipliers.length > 0 ? (
-                    previousMultipliers.slice(0, 10).map((m, i) => (
-                      <span
-                        key={i}
-                        className={`px-2 py-0.5 rounded-full font-mono text-xs font-bold border border-zinc-700 ${m.color}`}
-                        style={{ minWidth: 44, textAlign: 'center' }}
-                      >
-                        {m.value.toFixed(2)}x
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-zinc-500 text-xs">No previous multipliers</span>
-                  )}
+                  <span className="text-zinc-500 text-xs">Live multipliers from Socket.IO</span>
                 </div>
                 {/* Main Game Area */}
                 <div className="flex-1 flex items-center justify-center relative min-h-[180px]">
@@ -1245,18 +1145,29 @@ function App({ user, setUser }: AppProps) {
                       </label>
                     </div>
                     {autoCashoutEnabled && (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={autoCashoutValue}
-                          onChange={(e) => setAutoCashoutValue(parseFloat(e.target.value) || 1.00)}
-                          min="1.00"
-                          max="100.00"
-                          step="0.01"
-                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs sm:text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                          placeholder="2.00"
-                        />
-                        <span className="text-xs sm:text-sm text-zinc-400">x</span>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={autoCashoutValue}
+                            onChange={(e) => setAutoCashoutValue(Math.max(1.00, parseFloat(e.target.value) || 1.00))}
+                            min="1.00"
+                            max="100.00"
+                            step="0.01"
+                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs sm:text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder="2.00"
+                          />
+                          <span className="text-xs sm:text-sm text-zinc-400">x</span>
+                        </div>
+                        {userBet && gamePhase === 'flying' && !userBet.cashedOut && (
+                          <div className="text-xs text-zinc-400">
+                            {currentMultiplier >= autoCashoutValue ? (
+                              <span className="text-green-400">Auto cashout triggered!</span>
+                            ) : (
+                              <span>Will cashout at {autoCashoutValue.toFixed(2)}x (current: {currentMultiplier.toFixed(2)}x)</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1361,7 +1272,7 @@ function App({ user, setUser }: AppProps) {
             </div>
             <button
               className="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-2 rounded-full text-lg transition disabled:opacity-60"
-              // onClick={handleDeposit} // Add deposit logic here
+              onClick={handleDeposit}
               disabled={!depositAmount || Number(depositAmount) < 1}
             >
               Deposit
@@ -1468,16 +1379,16 @@ function App({ user, setUser }: AppProps) {
 function HamburgerMenu({ onLogout, onShowHistory }: { onLogout: () => void, onShowHistory: () => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="absolute top-4 right-4 z-50">
+    <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+        className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-yellow-400"
         aria-label="Menu"
       >
-        <span className="text-2xl text-white">&#8942;</span>
+        <span className="text-xl sm:text-2xl text-white">&#8942;</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg py-2">
+        <div className="absolute left-0 mt-2 w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg py-2 z-50">
           <button
             onClick={() => { setOpen(false); onShowHistory(); }}
             className="w-full flex items-center gap-2 px-4 py-2 text-blue-400 hover:bg-blue-600 hover:text-white font-semibold rounded transition focus:outline-none focus:ring-2 focus:ring-blue-400"
