@@ -67,7 +67,7 @@ function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [systemStatus, setSystemStatus] = useState('online');
+  const [systemStatus] = useState('online');
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [roundSearch, setRoundSearch] = useState('');
   const [searchingMultipliers, setSearchingMultipliers] = useState(false);
