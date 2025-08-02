@@ -98,6 +98,7 @@ function App({ user, setUser }: AppProps) {
 
   // Update balance in Supabase and refetch user
   const updateBalance = async (newBalance: number) => {
+    console.log(`💰 Updating balance: ${user.balance} → ${newBalance} KES`);
     setUser((prev: any) => ({ ...prev, balance: newBalance }));
     // Update balance in database
     const { error } = await supabase
@@ -455,8 +456,24 @@ function App({ user, setUser }: AppProps) {
           winAmount: 0,
         } : null);
         
-        // Update user balance (stake was already deducted when bet was placed)
-        console.log(`💥 User lost bet of ${userBet.amount} on instant crash ${crashPoint}x`);
+        // Log the instant crash loss
+        const lostAmount = userBet.amount;
+        console.log(`💥 User lost bet of ${lostAmount} on instant crash ${crashPoint}x`);
+        
+        // Ensure balance is properly reflected (stake was already deducted when bet was placed)
+        // Force a balance refresh to ensure UI shows correct balance
+        const currentBalance = user.balance;
+        console.log(`💰 Current balance after instant crash: ${currentBalance} KES`);
+        
+        // Show toast notification for instant crash loss
+        toast({
+          title: "💥 Instant Crash!",
+          description: `You lost ${lostAmount.toFixed(2)} KES on ${crashPoint}x crash. Balance: ${currentBalance.toFixed(2)} KES`,
+          variant: "destructive",
+        });
+        
+        // Ensure the bet is marked as crashed in database
+        crashBetInDb();
       }
 
       // Start next round after crash phase
