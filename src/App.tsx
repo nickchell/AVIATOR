@@ -421,8 +421,11 @@ function App({ user, setUser }: AppProps) {
   // Handle crash phase
   useEffect(() => {
     if (gamePhase === 'crashed' && crashPoint !== null) {
+      // Process all bets including user bets
       setBets((prevBets: Bet[]) => prevBets.map(bet => {
-        if (bet.isUserBet || bet.cashedOut !== undefined) return bet;
+        // Skip if already processed
+        if (bet.cashedOut !== undefined) return bet;
+        
         // Win: cashed out before or at crash
         if (bet.cashoutMultiplier && bet.cashoutMultiplier <= crashPoint) {
           return {
@@ -432,7 +435,7 @@ function App({ user, setUser }: AppProps) {
             winAmount: Math.floor(bet.amount * bet.cashoutMultiplier),
           };
         } else {
-          // Loss: tried to cash out after crash
+          // Loss: didn't cash out in time (including instant crashes)
           return {
             ...bet,
             cashedOut: false,
@@ -441,6 +444,20 @@ function App({ user, setUser }: AppProps) {
           };
         }
       }));
+
+      // Handle user bet specifically for instant crashes
+      if (userBet && !userBet.cashedOut) {
+        // User lost their bet (including instant crashes)
+        setUserBet(prev => prev ? {
+          ...prev,
+          cashedOut: false,
+          multiplier: undefined,
+          winAmount: 0,
+        } : null);
+        
+        // Update user balance (stake was already deducted when bet was placed)
+        console.log(`💥 User lost bet of ${userBet.amount} on instant crash ${crashPoint}x`);
+      }
 
       // Start next round after crash phase
       const timer = setTimeout(() => {
@@ -452,7 +469,7 @@ function App({ user, setUser }: AppProps) {
 
       return () => clearTimeout(timer);
     }
-  }, [gamePhase, crashPoint]);
+  }, [gamePhase, crashPoint, userBet]);
 
   // Handle wait phase countdown
   useEffect(() => {
@@ -1388,7 +1405,7 @@ function HamburgerMenu({ onLogout, onShowHistory }: { onLogout: () => void, onSh
         <span className="text-xl sm:text-2xl text-white">&#8942;</span>
       </button>
       {open && (
-        <div className="absolute left-0 mt-2 w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg py-2 z-50">
+        <div className="absolute right-0 mt-2 w-40 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg py-2 z-50">
           <button
             onClick={() => { setOpen(false); onShowHistory(); }}
             className="w-full flex items-center gap-2 px-4 py-2 text-blue-400 hover:bg-blue-600 hover:text-white font-semibold rounded transition focus:outline-none focus:ring-2 focus:ring-blue-400"
