@@ -1,15 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Minus, Plus, Timer } from 'lucide-react';
+import { Plus, Timer } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { io } from 'socket.io-client';
 
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
-import { v4 as uuidv4 } from 'uuid';
+
 // Removed BACKEND_URL import as it's no longer needed with Socket.IO
 
 type GamePhase = 'betting' | 'flying' | 'crashed' | 'wait';
@@ -57,6 +55,7 @@ interface Bet {
   cashoutMultiplier?: number;
   cashedOut?: boolean;
   isUserBet?: boolean;
+  betType?: 'manual' | 'auto'; // Add bet type to distinguish between manual and auto bets
 }
 
 // PreviousMultiplier interface removed - no longer needed with Socket.IO integration
@@ -120,12 +119,15 @@ function App({ user, setUser }: AppProps) {
     setShowDeposit(false);
     setDepositAmount('');
   };
-  // Set default bet amount to 10
-  const [betAmount, setBetAmount] = useState<number>(10);
-  const [userBet, setUserBet] = useState<Bet | null>(null);
+
+  // Independent bet states for manual and auto betting
+  const [manualBet, setManualBet] = useState<Bet | null>(null);
+  const [autoBet, setAutoBet] = useState<Bet | null>(null);
+  
+  // Second betting section bet states
+  const [manualBet2, setManualBet2] = useState<Bet | null>(null);
+  const [autoBet2, setAutoBet2] = useState<Bet | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
-  // Note: previousMultipliers functionality removed with Socket.IO integration
-  // Will be re-implemented if needed for historical data display
   const [totalBets, setTotalBets] = useState<number>(0);
   const [displayedBetCount, setDisplayedBetCount] = useState<number>(0);
   const [progress, setProgress] = useState(0);
@@ -138,16 +140,36 @@ function App({ user, setUser }: AppProps) {
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [crashPoint, setCrashPoint] = useState<number | null>(null);
-  // Add state for queued bet
-  const [queuedBetAmount, setQueuedBetAmount] = useState<number|null>(null);
-  // Add state for pending bet during betting phase
-  const [pendingBetAmount, setPendingBetAmount] = useState<number|null>(null);
-  // Add state for autocash out
-  const [autoCashoutEnabled, setAutoCashoutEnabled] = useState<boolean>(false);
-  const [autoCashoutValue, setAutoCashoutValue] = useState<number>(2.00);
+  
+  // Separate state for each betting section
+  const [manualBetAmount, setManualBetAmount] = useState<number>(60);
+  // @ts-ignore
+  const [autoBetAmount, setAutoBetAmount] = useState<number>(60);
+  const [manualPendingBet, setManualPendingBet] = useState<number|null>(null);
+  const [autoPendingBet, setAutoPendingBet] = useState<number|null>(null);
+  const [manualQueuedBet, setManualQueuedBet] = useState<number|null>(null);
+  const [autoQueuedBet, setAutoQueuedBet] = useState<number|null>(null);
+  
+  // Second betting section state
+  const [manualBetAmount2, setManualBetAmount2] = useState<number>(60);
+  // @ts-ignore
+  const [autoBetAmount2, setAutoBetAmount2] = useState<number>(60);
+  const [manualPendingBet2, setManualPendingBet2] = useState<number|null>(null);
+  const [autoPendingBet2, setAutoPendingBet2] = useState<number|null>(null);
+  const [manualQueuedBet2, setManualQueuedBet2] = useState<number|null>(null);
+  const [autoQueuedBet2, setAutoQueuedBet2] = useState<number|null>(null);
+  
+  // Tab switching state
+  const [autoMode, setAutoMode] = useState<boolean>(false);
+  const [autoMode2, setAutoMode2] = useState<boolean>(false);
+  
+  // Auto cashout multiplier state
+  const [autoCashoutMultiplier, setAutoCashoutMultiplier] = useState<number>(2.0);
+  const [autoCashoutMultiplier2, setAutoCashoutMultiplier2] = useState<number>(2.0);
+  
+
+
   const { toast } = useToast();
-  // Track previous gamePhase to prevent unwanted multiplier reset
-  // Remove the unused prevGamePhase variable
 
   // Add audio refs for flying and crash sounds
   const flyingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -212,6 +234,111 @@ function App({ user, setUser }: AppProps) {
       crashSoundPlayedRef.current = false;
     }
   }, [gamePhase]);
+
+
+
+  // Manual cashout handler
+  const handleManualCashOut = () => {
+    if (
+      gamePhase === 'flying' &&
+      manualBet &&
+      !manualBet.cashedOut &&
+      crashPoint && currentMultiplier < crashPoint
+    ) {
+      const winAmount = Math.floor(manualBet.amount * currentMultiplier);
+      updateBalance(user.balance + winAmount);
+
+      const cashedOutBet = {
+        ...manualBet,
+        multiplier: currentMultiplier,
+        winAmount,
+        cashedOut: true,
+      };
+
+      setManualBet(cashedOutBet);
+      setBets((prev: Bet[]) => prev.map(bet =>
+        bet.id === manualBet.id ? cashedOutBet : bet
+      ));
+      
+      // Update bet in database
+      if (manualBet.isUserBet) {
+        cashoutBetInDb(currentMultiplier, winAmount, 'manual');
+      }
+      
+      // Show success toast
+      toast({
+        title: "Manual Cashout Successful!",
+        description: `Cashed out at ${currentMultiplier.toFixed(2)}x for ${winAmount} KES`,
+        duration: 3000,
+      });
+    }
+  };
+
+  // Auto cashout is handled automatically in useEffect hooks
+
+  // Second section cashout handlers
+  const handleManualCashOut2 = () => {
+    if (
+      gamePhase === 'flying' &&
+      manualBet2 &&
+      !manualBet2.cashedOut &&
+      crashPoint && currentMultiplier < crashPoint
+    ) {
+      const winAmount = Math.floor(manualBet2.amount * currentMultiplier);
+      updateBalance(user.balance + winAmount);
+
+      const cashedOutBet = {
+        ...manualBet2,
+        multiplier: currentMultiplier,
+        winAmount,
+        cashedOut: true,
+      };
+
+      setManualBet2(cashedOutBet);
+      setBets((prev: Bet[]) => prev.map(bet =>
+        bet.id === manualBet2.id ? cashedOutBet : bet
+      ));
+      
+      // Update bet in database
+      if (manualBet2.isUserBet) {
+        cashoutBetInDb(currentMultiplier, winAmount, 'manual');
+      }
+      
+
+    }
+  };
+
+  // @ts-ignore
+  const handleAutoCashOut2 = () => {
+    if (
+      gamePhase === 'flying' &&
+      autoBet2 &&
+      !autoBet2.cashedOut &&
+      crashPoint && currentMultiplier < crashPoint
+    ) {
+      const winAmount = Math.floor(autoBet2.amount * currentMultiplier);
+      updateBalance(user.balance + winAmount);
+
+      const cashedOutBet = {
+        ...autoBet2,
+        multiplier: currentMultiplier,
+        winAmount,
+        cashedOut: true,
+      };
+
+      setAutoBet2(cashedOutBet);
+      setBets((prev: Bet[]) => prev.map(bet =>
+        bet.id === autoBet2.id ? cashedOutBet : bet
+      ));
+      
+      // Update bet in database
+      if (autoBet2.isUserBet) {
+        cashoutBetInDb(currentMultiplier, winAmount, 'auto');
+      }
+      
+
+    }
+  };
 
   // Generate mock bets with realistic cashout distribution
   const generateMockBets = useCallback((crashPointForRound: number | null): { bets: Bet[], totalBets: number } => {
@@ -304,16 +431,53 @@ function App({ user, setUser }: AppProps) {
             return bet;
           });
         });
-        
-        // Auto cashout logic for user bet
-        if (autoCashoutEnabled && userBet && !userBet.cashedOut && currentMultiplier >= autoCashoutValue && crashPoint && currentMultiplier < crashPoint) {
-          handleCashOut();
+
+        // Auto cashout logic for user's auto bet
+        if (autoBet && !autoBet.cashedOut && autoBet.cashoutMultiplier && currentMultiplier >= autoBet.cashoutMultiplier) {
+          const winAmount = Math.floor(autoBet.amount * autoBet.cashoutMultiplier);
+          updateBalance(user.balance + winAmount);
+
+          const cashedOutBet = {
+            ...autoBet,
+            multiplier: autoBet.cashoutMultiplier,
+            winAmount,
+            cashedOut: true,
+          };
+
+          setAutoBet(cashedOutBet);
+          
+          // Update bet in database
+          cashoutBetInDb(autoBet.cashoutMultiplier, winAmount, 'auto');
+          
+          // Show success toast
           toast({
-            title: "Auto Cashout!",
-            description: `Cashed out at ${currentMultiplier.toFixed(2)}x for ${Math.floor(userBet.amount * currentMultiplier)} KES`,
+            title: "Auto Cashout Triggered!",
+            description: `Auto cashed out at ${autoBet.cashoutMultiplier.toFixed(2)}x for ${winAmount} KES`,
             duration: 3000,
           });
         }
+
+        // Auto cashout logic for user's auto bet 2
+        if (autoBet2 && !autoBet2.cashedOut && autoBet2.cashoutMultiplier && currentMultiplier >= autoBet2.cashoutMultiplier) {
+          const winAmount = Math.floor(autoBet2.amount * autoBet2.cashoutMultiplier);
+          updateBalance(user.balance + winAmount);
+
+          const cashedOutBet = {
+            ...autoBet2,
+            multiplier: autoBet2.cashoutMultiplier,
+            winAmount,
+            cashedOut: true,
+          };
+
+          setAutoBet2(cashedOutBet);
+          
+          // Update bet in database
+          cashoutBetInDb2(autoBet2.cashoutMultiplier, winAmount, 'auto');
+          
+
+        }
+        
+
       }, 100); // Update every 100ms for smooth real-time experience
       
       return () => {
@@ -328,7 +492,7 @@ function App({ user, setUser }: AppProps) {
         betUpdateIntervalRef.current = null;
       }
     }
-  }, [gamePhase, crashPoint, currentMultiplier, autoCashoutEnabled, autoCashoutValue, userBet]);
+  }, [gamePhase, crashPoint, currentMultiplier, manualBet, autoBet, manualBet2, autoBet2]);
 
   // Helper for weighted random bet amounts
   function getWeightedBetAmount() {
@@ -375,14 +539,17 @@ function App({ user, setUser }: AppProps) {
       const { bets: mockBets, totalBets } = generateMockBets(crashPoint);
       setBets((_prev: Bet[]) => {
         const allBets = [...mockBets];
-        if (userBet) {
-          allBets.unshift(userBet);
+        if (manualBet) {
+          allBets.unshift(manualBet);
+        }
+        if (autoBet) {
+          allBets.unshift(autoBet);
         }
         return allBets;
       });
       setTotalBets(totalBets);
     }
-  }, [gamePhase, generateMockBets, userBet, crashPoint]);
+  }, [gamePhase, generateMockBets, manualBet, autoBet, crashPoint]);
 
   // When entering the betting phase, optionally generate new mock bets for the next round (if you want to show bets during betting phase)
   useEffect(() => {
@@ -393,16 +560,17 @@ function App({ user, setUser }: AppProps) {
       const { bets: mockBets, totalBets } = generateMockBets(null);
       setBets((_prev: Bet[]) => {
         const allBets = [...mockBets];
-        if (userBet) {
-          allBets.unshift(userBet);
+        if (manualBet) {
+          allBets.unshift(manualBet);
+        }
+        if (autoBet) {
+          allBets.unshift(autoBet);
         }
         return allBets;
       });
       setTotalBets(totalBets);
     }
-  }, [gamePhase, generateMockBets, userBet]);
-
-  // Note: flyingIntervalRef removed - Socket.IO handles multiplier updates
+  }, [gamePhase, generateMockBets, manualBet, autoBet]);
 
   // Only reset multiplier to 1.00 when entering flying phase
   useEffect(() => {
@@ -446,10 +614,10 @@ function App({ user, setUser }: AppProps) {
         }
       }));
 
-      // Handle user bet specifically for instant crashes
-      if (userBet && !userBet.cashedOut) {
+      // Handle manual bet specifically for instant crashes
+      if (manualBet && !manualBet.cashedOut) {
         // User lost their bet (including instant crashes)
-        setUserBet(prev => prev ? {
+        setManualBet(prev => prev ? {
           ...prev,
           cashedOut: false,
           multiplier: undefined,
@@ -457,23 +625,29 @@ function App({ user, setUser }: AppProps) {
         } : null);
         
         // Log the instant crash loss
-        const lostAmount = userBet.amount;
-        console.log(`💥 User lost bet of ${lostAmount} on instant crash ${crashPoint}x`);
-        
-        // Ensure balance is properly reflected (stake was already deducted when bet was placed)
-        // Force a balance refresh to ensure UI shows correct balance
-        const currentBalance = user.balance;
-        console.log(`💰 Current balance after instant crash: ${currentBalance} KES`);
-        
-        // Show toast notification for instant crash loss
-        toast({
-          title: "💥 Instant Crash!",
-          description: `You lost ${lostAmount.toFixed(2)} KES on ${crashPoint}x crash. Balance: ${currentBalance.toFixed(2)} KES`,
-          variant: "destructive",
-        });
+        const lostAmount = manualBet.amount;
+        console.log(`💥 Manual bet lost: ${lostAmount} on instant crash ${crashPoint}x`);
         
         // Ensure the bet is marked as crashed in database
-        crashBetInDb();
+        crashBetInDb('manual');
+      }
+
+      // Handle auto bet specifically for instant crashes
+      if (autoBet && !autoBet.cashedOut) {
+        // User lost their bet (including instant crashes)
+        setAutoBet(prev => prev ? {
+          ...prev,
+          cashedOut: false,
+          multiplier: undefined,
+          winAmount: 0,
+        } : null);
+        
+        // Log the instant crash loss
+        const lostAmount = autoBet.amount;
+        console.log(`💥 Auto bet lost: ${lostAmount} on instant crash ${crashPoint}x`);
+        
+        // Ensure the bet is marked as crashed in database
+        crashBetInDb('auto');
       }
 
       // Start next round after crash phase
@@ -481,12 +655,20 @@ function App({ user, setUser }: AppProps) {
         setGamePhase('wait');
         setWaitCountdown(WAIT_PHASE_DURATION);
         // Don't reset multiplier here - keep crash value visible
-        setUserBet(null);
+        setManualBet(null);
+        setAutoBet(null);
+        setManualBet2(null);
+        setAutoBet2(null);
+        // Reset database IDs for new round
+        setManualBetDbId(null);
+        setAutoBetDbId(null);
+        setManualBetDbId2(null);
+        setAutoBetDbId2(null);
       }, 2000); // 2 seconds to show crash result
 
       return () => clearTimeout(timer);
     }
-  }, [gamePhase, crashPoint, userBet]);
+  }, [gamePhase, crashPoint, manualBet, autoBet, manualBet2, autoBet2]);
 
   // Handle wait phase countdown
   useEffect(() => {
@@ -556,73 +738,167 @@ function App({ user, setUser }: AppProps) {
     return () => { if (interval) clearInterval(interval); };
   }, [gamePhase]);
 
-  const handleBetAmountChange = (value: string) => {
-    const numValue = parseInt(value) || 0;
-    setBetAmount(Math.max(10, Math.min(numValue, user.balance)));
+  const adjustManualBetAmount = (delta: number) => {
+    setManualBetAmount((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
   };
 
-  const adjustBetAmount = (delta: number) => {
-    setBetAmount((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
+  // @ts-ignore
+  const adjustAutoBetAmount = (delta: number) => {
+    setAutoBetAmount((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
   };
 
-  const handleCashOut = () => {
-    if (
-      gamePhase === 'flying' &&
-      userBet &&
-      !userBet.cashedOut &&
-      crashPoint && currentMultiplier < crashPoint // Only allow if not crashed
-    ) {
-      const winAmount = Math.floor(userBet.amount * currentMultiplier);
-      updateBalance(user.balance + winAmount);
+  const handleManualPresetAmount = (amount: number) => {
+    setManualBetAmount(Math.min(amount, user.balance));
+  };
 
-      const cashedOutBet = {
-        ...userBet,
-        multiplier: currentMultiplier,
-        winAmount,
-        cashedOut: true,
-      };
+  // @ts-ignore
+  const handleAutoPresetAmount = (amount: number) => {
+    setAutoBetAmount(Math.min(amount, user.balance));
+  };
 
-      setUserBet(cashedOutBet);
-      setBets((prev: Bet[]) => prev.map(bet =>
-        bet.id === userBet.id ? cashedOutBet : bet
-      ));
-      
-      // Update bet in database
-      if (userBet.isUserBet) {
-        cashoutBetInDb(currentMultiplier, winAmount);
-      }
-      
-      // Show success toast
-      toast({
-        title: "Cashout Successful!",
-        description: `Cashed out at ${currentMultiplier.toFixed(2)}x for ${winAmount} KES`,
-        duration: 3000,
-      });
+  // Auto cashout multiplier adjustment functions
+  const adjustAutoCashoutMultiplier = (delta: number) => {
+    const newValue = autoCashoutMultiplier + delta;
+    if (newValue >= 1.1 && newValue <= 100) {
+      setAutoCashoutMultiplier(+(newValue.toFixed(2)));
     }
+  };
+
+  const handleAutoCashoutPreset = (multiplier: number) => {
+    setAutoCashoutMultiplier(multiplier);
+  };
+
+  // Second betting section functions
+  const adjustManualBetAmount2 = (delta: number) => {
+    setManualBetAmount2((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
+  };
+
+  // @ts-ignore
+  const adjustAutoBetAmount2 = (delta: number) => {
+    setAutoBetAmount2((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
+  };
+
+  const handleManualPresetAmount2 = (amount: number) => {
+    setManualBetAmount2(Math.min(amount, user.balance));
+  };
+
+  // @ts-ignore
+  const handleAutoPresetAmount2 = (amount: number) => {
+    setAutoBetAmount2(Math.min(amount, user.balance));
+  };
+
+  const adjustAutoCashoutMultiplier2 = (delta: number) => {
+    const newValue = autoCashoutMultiplier2 + delta;
+    if (newValue >= 1.1 && newValue <= 100) {
+      setAutoCashoutMultiplier2(+(newValue.toFixed(2)));
+    }
+  };
+
+  const handleAutoCashoutPreset2 = (multiplier: number) => {
+    setAutoCashoutMultiplier2(multiplier);
   };
 
   // Add Supabase bet logic
   // Store the current bet's database id
-  const [betDbId, setBetDbId] = useState<string | null>(null);
+  const [manualBetDbId, setManualBetDbId] = useState<string | null>(null);
+  const [autoBetDbId, setAutoBetDbId] = useState<string | null>(null);
+  
+  // Second betting section database IDs
+  const [manualBetDbId2, setManualBetDbId2] = useState<string | null>(null);
+  const [autoBetDbId2, setAutoBetDbId2] = useState<string | null>(null);
 
   // Place bet (when user places a bet)
-  const placeBetInDb = async (amount: number) => {
-    const { data } = await supabase
-      .from('bets')
-      .insert([{
-        id: uuidv4(),
-        user_id: user.id,
-        amount,
-        status: 'pending',
-        placed_at: new Date().toISOString(),
-      }])
-      .select();
-    if (data && data[0] && data[0].id) setBetDbId(data[0].id);
+  const placeBetInDb = async (amount: number, betType: 'manual' | 'auto', cashoutMultiplier?: number) => {
+    const betData: any = {
+      user_id: user.id,
+      round_id: null,
+      amount,
+      status: 'pending',
+      placed_at: new Date().toISOString(),
+    };
+    
+    // Add cashout multiplier for auto bets
+    if (betType === 'auto' && cashoutMultiplier) {
+      betData.cashout_multiplier = cashoutMultiplier;
+    }
+    
+    console.log(`💾 Bet data to insert:`, betData);
+    
+    try {
+      const { data, error } = await supabase
+        .from('bets')
+        .insert([betData])
+        .select();
+      
+      if (error) {
+        console.error('❌ Error placing bet in database:', error);
+        return;
+      }
+      
+      console.log(`✅ Bet successfully saved to database:`, data);
+      
+      if (data && data[0] && data[0].id) {
+        if (betType === 'manual') {
+          setManualBetDbId(data[0].id);
+          console.log(`💾 Manual bet DB ID set to: ${data[0].id}`);
+        } else {
+          setAutoBetDbId(data[0].id);
+          console.log(`💾 Auto bet DB ID set to: ${data[0].id}`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Exception placing bet in database:', error);
+    }
+  };
+
+  // Place bet for second section (when user places a bet)
+  const placeBetInDb2 = async (amount: number, betType: 'manual' | 'auto', cashoutMultiplier?: number) => {
+    const betData: any = {
+      user_id: user.id,
+      round_id: null,
+      amount,
+      status: 'pending',
+      placed_at: new Date().toISOString(),
+    };
+    
+    // Add cashout multiplier for auto bets
+    if (betType === 'auto' && cashoutMultiplier) {
+      betData.cashout_multiplier = cashoutMultiplier;
+    }
+    
+    console.log(`💾 Bet 2 data to insert:`, betData);
+    
+    try {
+      const { data, error } = await supabase
+        .from('bets')
+        .insert([betData])
+        .select();
+      
+      if (error) {
+        console.error('❌ Error placing bet 2 in database:', error);
+        return;
+      }
+      
+      console.log(`✅ Bet 2 successfully saved to database:`, data);
+      
+      if (data && data[0] && data[0].id) {
+        if (betType === 'manual') {
+          setManualBetDbId2(data[0].id);
+          console.log(`💾 Manual bet 2 DB ID set to: ${data[0].id}`);
+        } else {
+          setAutoBetDbId2(data[0].id);
+          console.log(`💾 Auto bet 2 DB ID set to: ${data[0].id}`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Exception placing bet 2 in database:', error);
+    }
   };
 
   // On cashout, update the bet in Supabase
-  const cashoutBetInDb = async (multiplier: number, winAmount: number) => {
-    if (!betDbId) return;
+  const cashoutBetInDb = async (multiplier: number, winAmount: number, betType: 'manual' | 'auto') => {
+    const betId = betType === 'manual' ? manualBetDbId : autoBetDbId;
+    if (!betId) return;
     await supabase
       .from('bets')
       .update({
@@ -631,41 +907,125 @@ function App({ user, setUser }: AppProps) {
         win_amount: winAmount,
         status: 'cashed_out',
       })
-      .eq('id', betDbId);
+      .eq('id', betId);
   };
 
   // On crash, update the bet in Supabase if not cashed out
-  const crashBetInDb = async () => {
-    if (!betDbId) return;
+  const crashBetInDb = async (betType: 'manual' | 'auto') => {
+    const betId = betType === 'manual' ? manualBetDbId : autoBetDbId;
+    if (!betId) return;
     await supabase
       .from('bets')
       .update({
         status: 'crashed',
         win_amount: 0,
       })
-      .eq('id', betDbId);
+      .eq('id', betId);
+  };
+
+  // On cashout for second section, update the bet in Supabase
+  const cashoutBetInDb2 = async (multiplier: number, winAmount: number, betType: 'manual' | 'auto') => {
+    const betId = betType === 'manual' ? manualBetDbId2 : autoBetDbId2;
+    if (!betId) return;
+    await supabase
+      .from('bets')
+      .update({
+        cashed_out_at: new Date().toISOString(),
+        cashout_multiplier: multiplier,
+        win_amount: winAmount,
+        status: 'cashed_out',
+      })
+      .eq('id', betId);
+  };
+
+  // On crash for second section, update the bet in Supabase if not cashed out
+  const crashBetInDb2 = async (betType: 'manual' | 'auto') => {
+    const betId = betType === 'manual' ? manualBetDbId2 : autoBetDbId2;
+    if (!betId) return;
+    await supabase
+      .from('bets')
+      .update({
+        status: 'crashed',
+        win_amount: 0,
+      })
+      .eq('id', betId);
   };
 
   // When placing a bet, call placeBetInDb
   useEffect(() => {
-    if (userBet && userBet.isUserBet && !userBet.cashedOut) {
-      placeBetInDb(userBet.amount);
+    if (manualBet && manualBet.isUserBet && !manualBet.cashedOut) {
+      placeBetInDb(manualBet.amount, 'manual');
     }
-  }, [userBet && userBet.isUserBet && !userBet.cashedOut]);
+  }, [manualBet && manualBet.isUserBet && !manualBet.cashedOut]);
+
+  useEffect(() => {
+    if (autoBet && autoBet.isUserBet && !autoBet.cashedOut) {
+      placeBetInDb(autoBet.amount, 'auto', autoBet.cashoutMultiplier);
+    }
+  }, [autoBet && autoBet.isUserBet && !autoBet.cashedOut]);
 
   // When cashing out, call cashoutBetInDb
   useEffect(() => {
-    if (userBet && userBet.cashedOut && userBet.isUserBet) {
-      cashoutBetInDb(userBet.multiplier || 0, userBet.winAmount || 0);
+    if (manualBet && manualBet.cashedOut && manualBet.isUserBet) {
+      cashoutBetInDb(manualBet.multiplier || 0, manualBet.winAmount || 0, 'manual');
     }
-  }, [userBet && userBet.cashedOut && userBet.isUserBet]);
+  }, [manualBet && manualBet.cashedOut && manualBet.isUserBet]);
+
+  useEffect(() => {
+    if (autoBet && autoBet.cashedOut && autoBet.isUserBet) {
+      cashoutBetInDb(autoBet.multiplier || 0, autoBet.winAmount || 0, 'auto');
+    }
+  }, [autoBet && autoBet.cashedOut && autoBet.isUserBet]);
 
   // When the round crashes, if userBet exists and is not cashed out, mark as crashed
   useEffect(() => {
-    if (gamePhase === 'crashed' && userBet && !userBet.cashedOut && userBet.isUserBet) {
-      crashBetInDb();
+    if (gamePhase === 'crashed' && manualBet && !manualBet.cashedOut && manualBet.isUserBet) {
+      crashBetInDb('manual');
     }
-  }, [gamePhase, userBet]);
+  }, [gamePhase, manualBet]);
+
+  useEffect(() => {
+    if (gamePhase === 'crashed' && autoBet && !autoBet.cashedOut && autoBet.isUserBet) {
+      crashBetInDb('auto');
+    }
+  }, [gamePhase, autoBet]);
+
+  // Database operations for second section
+  useEffect(() => {
+    if (manualBet2 && manualBet2.isUserBet && !manualBet2.cashedOut && !manualBetDbId2) {
+      placeBetInDb2(manualBet2.amount, 'manual');
+    }
+  }, [manualBet2?.id, manualBet2?.isUserBet, manualBet2?.cashedOut, manualBetDbId2]);
+
+  useEffect(() => {
+    if (autoBet2 && autoBet2.isUserBet && !autoBet2.cashedOut && !autoBetDbId2) {
+      placeBetInDb2(autoBet2.amount, 'auto', autoBet2.cashoutMultiplier);
+    }
+  }, [autoBet2?.id, autoBet2?.isUserBet, autoBet2?.cashedOut, autoBet2?.cashoutMultiplier, autoBetDbId2]);
+
+  useEffect(() => {
+    if (manualBet2 && manualBet2.cashedOut && manualBet2.isUserBet) {
+      cashoutBetInDb2(manualBet2.multiplier || 0, manualBet2.winAmount || 0, 'manual');
+    }
+  }, [manualBet2?.id, manualBet2?.cashedOut, manualBet2?.isUserBet, manualBet2?.multiplier, manualBet2?.winAmount]);
+
+  useEffect(() => {
+    if (autoBet2 && autoBet2.cashedOut && autoBet2.isUserBet) {
+      cashoutBetInDb2(autoBet2.multiplier || 0, autoBet2.winAmount || 0, 'auto');
+    }
+  }, [autoBet2?.id, autoBet2?.cashedOut, autoBet2?.isUserBet, autoBet2?.multiplier, autoBet2?.winAmount]);
+
+  useEffect(() => {
+    if (gamePhase === 'crashed' && manualBet2 && !manualBet2.cashedOut && manualBet2.isUserBet) {
+      crashBetInDb2('manual');
+    }
+  }, [gamePhase, manualBet2?.id, manualBet2?.cashedOut, manualBet2?.isUserBet]);
+
+  useEffect(() => {
+    if (gamePhase === 'crashed' && autoBet2 && !autoBet2.cashedOut && autoBet2.isUserBet) {
+      crashBetInDb2('auto');
+    }
+  }, [gamePhase, autoBet2?.id, autoBet2?.cashedOut, autoBet2?.isUserBet]);
 
   const getPhaseDisplay = () => {
     switch (gamePhase) {
@@ -741,7 +1101,7 @@ function App({ user, setUser }: AppProps) {
     }
   };
 
-  const canCashOut = gamePhase === 'flying' && userBet && !userBet.cashedOut && crashPoint && currentMultiplier < crashPoint;
+
 
   // Logout handler
   const handleLogout = () => {
@@ -797,7 +1157,15 @@ function App({ user, setUser }: AppProps) {
       setGamePhase('betting');
       setCountdown(BETTING_PHASE_DURATION);
       // Don't reset multiplier here - keep the crash value visible
-      setUserBet(null);
+      setManualBet(null);
+      setAutoBet(null);
+      setManualBet2(null);
+      setAutoBet2(null);
+      // Reset database IDs for new round
+      setManualBetDbId(null);
+      setAutoBetDbId(null);
+      setManualBetDbId2(null);
+      setAutoBetDbId2(null);
     });
 
     newSocket.on('multiplier:update', (data: MultiplierUpdateData) => {
@@ -806,10 +1174,14 @@ function App({ user, setUser }: AppProps) {
         console.log(`🚨 SUSPICIOUS MULTIPLIER: round ${data.round}, multiplier ${data.multiplier}`);
       }
       
-      // Only log every 10th update or significant changes to reduce console spam
-      const shouldLog = data.multiplier % 0.5 < 0.02 || data.multiplier >= 2.0;
+      // Only log significant changes or every 20th update to reduce console spam
+      const shouldLog = (data.multiplier >= 2.0 && data.multiplier % 0.5 < 0.02) || 
+                       (data.multiplier >= 5.0) || 
+                       (data.multiplier >= 10.0) ||
+                       (Math.random() < 0.05); // 5% chance to log any update
+      
       if (shouldLog) {
-        console.log(`📈 Multiplier update: round ${data.round}, multiplier ${data.multiplier}, current frontend round ${currentRoundRef.current}`);
+        console.log(`📈 Multiplier update: round ${data.round}, multiplier ${data.multiplier.toFixed(2)}, current frontend round ${currentRoundRef.current}`);
       }
       
       if (data.round === currentRoundRef.current) {
@@ -841,68 +1213,353 @@ function App({ user, setUser }: AppProps) {
     console.log(`📱 Connected to socket server, waiting for current state...`);
   }, []);
 
-  // When entering betting phase, if queuedBetAmount is set, place the bet automatically and clear queuedBetAmount
+
+
+  // Handle manual pending bet placement
   useEffect(() => {
-    if (gamePhase === 'betting' && queuedBetAmount !== null) {
-      if (queuedBetAmount <= user.balance && queuedBetAmount >= 10) {
-        updateBalance(user.balance - queuedBetAmount);
+    if (gamePhase === 'betting' && manualPendingBet !== null) {
+      if (manualPendingBet <= user.balance && manualPendingBet >= 10) {
+        updateBalance(user.balance - manualPendingBet);
         const newBet: Bet = {
           id: `user-${Date.now()}`,
           playerId: 'You',
-          amount: queuedBetAmount,
+          amount: manualPendingBet,
           isUserBet: true,
+          betType: 'manual',
         };
-        setUserBet(newBet);
+        setManualBet(newBet);
+        console.log(`💰 Manual bet placed: ${manualPendingBet} KES`);
+        toast({
+          title: "Bet Placed!",
+          description: `Bet of ${manualPendingBet} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid manual bet: ${manualPendingBet} KES (balance: ${user.balance})`);
+        toast({
+          title: "Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
       }
-      setQueuedBetAmount(null);
+      setManualPendingBet(null);
     }
-  }, [gamePhase]);
+  }, [gamePhase, manualPendingBet, user.balance]);
 
-  // When the round transitions to flying, if userBet is set, clear any queued bet
+  // Handle auto pending bet placement
   useEffect(() => {
-    if (gamePhase === 'flying' && userBet) {
-      setQueuedBetAmount(null);
-    }
-  }, [gamePhase, userBet]);
-
-  // When the round transitions to flying, if pendingBetAmount is set, place the bet and clear pendingBetAmount
-  useEffect(() => {
-    if (gamePhase === 'flying' && pendingBetAmount !== null) {
-      if (pendingBetAmount <= user.balance && pendingBetAmount >= 10) {
-        updateBalance(user.balance - pendingBetAmount);
+    if (gamePhase === 'betting' && autoPendingBet !== null) {
+      if (autoPendingBet <= user.balance && autoPendingBet >= 10) {
+        updateBalance(user.balance - autoPendingBet);
         const newBet: Bet = {
           id: `user-${Date.now()}`,
           playerId: 'You',
-          amount: pendingBetAmount,
+          amount: autoPendingBet,
+          cashoutMultiplier: autoCashoutMultiplier,
           isUserBet: true,
+          betType: 'auto',
         };
-        setUserBet(newBet);
+        setAutoBet(newBet);
+        console.log(`💰 Auto bet placed: ${autoPendingBet} KES`);
+        toast({
+          title: "Auto Bet Placed!",
+          description: `Auto bet of ${autoPendingBet} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid auto bet: ${autoPendingBet} KES (balance: ${user.balance})`);
+        toast({
+          title: "Auto Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
       }
-      setPendingBetAmount(null);
+      setAutoPendingBet(null);
     }
-  }, [gamePhase]);
+  }, [gamePhase, autoPendingBet, user.balance]);
+
+  // Handle manual queued bet placement
+  useEffect(() => {
+    if (gamePhase === 'betting' && manualQueuedBet !== null) {
+      if (manualQueuedBet <= user.balance && manualQueuedBet >= 10) {
+        updateBalance(user.balance - manualQueuedBet);
+        const newBet: Bet = {
+          id: `user-${Date.now()}`,
+          playerId: 'You',
+          amount: manualQueuedBet,
+          isUserBet: true,
+          betType: 'manual',
+        };
+        setManualBet(newBet);
+        console.log(`💰 Manual queued bet placed: ${manualQueuedBet} KES`);
+        toast({
+          title: "Queued Bet Placed!",
+          description: `Queued bet of ${manualQueuedBet} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid manual queued bet: ${manualQueuedBet} KES (balance: ${user.balance})`);
+        toast({
+          title: "Queued Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
+      }
+      setManualQueuedBet(null);
+    }
+  }, [gamePhase, manualQueuedBet, user.balance]);
+
+  // Handle auto queued bet placement
+  useEffect(() => {
+    if (gamePhase === 'betting' && autoQueuedBet !== null) {
+      if (autoQueuedBet <= user.balance && autoQueuedBet >= 10) {
+        updateBalance(user.balance - autoQueuedBet);
+        const newBet: Bet = {
+          id: `user-${Date.now()}`,
+          playerId: 'You',
+          amount: autoQueuedBet,
+          cashoutMultiplier: autoCashoutMultiplier,
+          isUserBet: true,
+          betType: 'auto',
+        };
+        setAutoBet(newBet);
+        console.log(`💰 Auto queued bet placed: ${autoQueuedBet} KES`);
+        toast({
+          title: "Auto Queued Bet Placed!",
+          description: `Auto queued bet of ${autoQueuedBet} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid auto queued bet: ${autoQueuedBet} KES (balance: ${user.balance})`);
+        toast({
+          title: "Auto Queued Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
+      }
+      setAutoQueuedBet(null);
+    }
+  }, [gamePhase, autoQueuedBet, user.balance]);
+
+  // Handle manual pending bet placement for second section
+  useEffect(() => {
+    if (gamePhase === 'betting' && manualPendingBet2 !== null) {
+      if (manualPendingBet2 <= user.balance && manualPendingBet2 >= 10) {
+        updateBalance(user.balance - manualPendingBet2);
+        const newBet: Bet = {
+          id: `user-${Date.now()}-2`,
+          playerId: 'You',
+          amount: manualPendingBet2,
+          isUserBet: true,
+          betType: 'manual',
+        };
+        setManualBet2(newBet);
+        console.log(`💰 Manual bet 2 placed: ${manualPendingBet2} KES`);
+        toast({
+          title: "Bet Placed!",
+          description: `Bet of ${manualPendingBet2} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid manual bet 2: ${manualPendingBet2} KES (balance: ${user.balance})`);
+        toast({
+          title: "Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
+      }
+      setManualPendingBet2(null);
+    }
+  }, [gamePhase, manualPendingBet2, user.balance]);
+
+  // Handle auto pending bet placement for second section
+  useEffect(() => {
+    if (gamePhase === 'betting' && autoPendingBet2 !== null) {
+      if (autoPendingBet2 <= user.balance && autoPendingBet2 >= 10) {
+        updateBalance(user.balance - autoPendingBet2);
+        const newBet: Bet = {
+          id: `user-${Date.now()}-2`,
+          playerId: 'You',
+          amount: autoPendingBet2,
+          cashoutMultiplier: autoCashoutMultiplier2,
+          isUserBet: true,
+          betType: 'auto',
+        };
+        setAutoBet2(newBet);
+        console.log(`💰 Auto bet 2 placed: ${autoPendingBet2} KES`);
+        toast({
+          title: "Auto Bet Placed!",
+          description: `Auto bet of ${autoPendingBet2} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid auto bet 2: ${autoPendingBet2} KES (balance: ${user.balance})`);
+        toast({
+          title: "Auto Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
+      }
+      setAutoPendingBet2(null);
+    }
+  }, [gamePhase, autoPendingBet2, user.balance]);
+
+  // Handle manual queued bet placement for second section
+  useEffect(() => {
+    if (gamePhase === 'betting' && manualQueuedBet2 !== null) {
+      if (manualQueuedBet2 <= user.balance && manualQueuedBet2 >= 10) {
+        updateBalance(user.balance - manualQueuedBet2);
+        const newBet: Bet = {
+          id: `user-${Date.now()}-2`,
+          playerId: 'You',
+          amount: manualQueuedBet2,
+          isUserBet: true,
+          betType: 'manual',
+        };
+        setManualBet2(newBet);
+        console.log(`💰 Manual queued bet 2 placed: ${manualQueuedBet2} KES`);
+        toast({
+          title: "Queued Bet Placed!",
+          description: `Queued bet of ${manualQueuedBet2} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid manual queued bet 2: ${manualQueuedBet2} KES (balance: ${user.balance})`);
+        toast({
+          title: "Queued Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
+      }
+      setManualQueuedBet2(null);
+    }
+  }, [gamePhase, manualQueuedBet2, user.balance]);
+
+  // Handle auto queued bet placement for second section
+  useEffect(() => {
+    if (gamePhase === 'betting' && autoQueuedBet2 !== null) {
+      if (autoQueuedBet2 <= user.balance && autoQueuedBet2 >= 10) {
+        updateBalance(user.balance - autoQueuedBet2);
+        const newBet: Bet = {
+          id: `user-${Date.now()}-2`,
+          playerId: 'You',
+          amount: autoQueuedBet2,
+          cashoutMultiplier: autoCashoutMultiplier2,
+          isUserBet: true,
+          betType: 'auto',
+        };
+        setAutoBet2(newBet);
+        console.log(`💰 Auto queued bet 2 placed: ${autoQueuedBet2} KES`);
+        toast({
+          title: "Auto Queued Bet Placed!",
+          description: `Auto queued bet of ${autoQueuedBet2} KES placed successfully`,
+          duration: 2000,
+        });
+      } else {
+        console.log(`❌ Invalid auto queued bet 2: ${autoQueuedBet2} KES (balance: ${user.balance})`);
+        toast({
+          title: "Auto Queued Bet Failed",
+          description: `Invalid bet amount or insufficient balance`,
+          variant: "destructive",
+          duration: 2000,
+        });
+      }
+      setAutoQueuedBet2(null);
+    }
+  }, [gamePhase, autoQueuedBet2, user.balance]);
 
   // Show a green toast when the user wins a bet
   useEffect(() => {
-    if (userBet && userBet.cashedOut && userBet.winAmount && userBet.winAmount > 0) {
+    if (manualBet && manualBet.cashedOut && manualBet.winAmount && manualBet.winAmount > 0) {
       toast({
         // Use a custom JSX element for the toast content
         description: (
-          <div className="flex items-center justify-between bg-green-600 rounded-full px-4 py-2 w-full min-w-[180px] max-w-[260px] shadow-lg">
+          <div className="flex items-center justify-between bg-green-600 rounded-full px-2 sm:px-4 py-1.5 sm:py-2 w-full min-w-[120px] sm:min-w-[140px] max-w-[180px] sm:max-w-[200px] shadow-lg">
             <div className="flex flex-col items-start">
-              <span className="text-xs text-white/80">You have cashed out</span>
-              <span className="text-lg font-bold text-white">{userBet.multiplier?.toFixed(2)}x</span>
+              <span className="text-[10px] sm:text-xs text-white/80">Manual bet cashed out</span>
+              <span className="text-sm sm:text-lg font-bold text-white">{manualBet.multiplier?.toFixed(2)}x</span>
             </div>
-            <div className="ml-4 flex items-center">
-              <span className="bg-green-700 rounded-full px-3 py-1 text-base font-bold text-white shadow">Win KES {userBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <div className="ml-2 sm:ml-4 flex items-center">
+              <span className="bg-green-700 rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-xs sm:text-base font-bold text-white shadow">Win KES {manualBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
           </div>
         ),
         className: 'p-0 bg-transparent shadow-none',
-        style: { top: 20, left: '50%', transform: 'translateX(-50%)', position: 'fixed', zIndex: 9999, width: 'auto', minWidth: 180 },
+        style: { top: 10, left: '50%', transform: 'translateX(-50%)', position: 'fixed', zIndex: 9999, width: 'auto', minWidth: 140, maxWidth: '90vw' },
       });
     }
-  }, [userBet]);
+  }, [manualBet]);
+
+  useEffect(() => {
+    if (autoBet && autoBet.cashedOut && autoBet.winAmount && autoBet.winAmount > 0) {
+      toast({
+        // Use a custom JSX element for the toast content
+        description: (
+          <div className="flex items-center justify-between bg-green-600 rounded-full px-2 sm:px-4 py-1.5 sm:py-2 w-full min-w-[120px] sm:min-w-[140px] max-w-[180px] sm:max-w-[200px] shadow-lg">
+            <div className="flex flex-col items-start">
+              <span className="text-[10px] sm:text-xs text-white/80">Auto bet cashed out</span>
+              <span className="text-sm sm:text-lg font-bold text-white">{autoBet.multiplier?.toFixed(2)}x</span>
+            </div>
+            <div className="ml-2 sm:ml-4 flex items-center">
+              <span className="bg-green-700 rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-xs sm:text-base font-bold text-white shadow">Win KES {autoBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        ),
+        className: 'p-0 bg-transparent shadow-none',
+        style: { top: 10, left: '50%', transform: 'translateX(-50%)', position: 'fixed', zIndex: 9999, width: 'auto', minWidth: 140, maxWidth: '90vw' },
+      });
+    }
+  }, [autoBet]);
+
+  // Show custom styled toast for second section wins
+  useEffect(() => {
+    if (manualBet2 && manualBet2.cashedOut && manualBet2.winAmount && manualBet2.winAmount > 0) {
+      toast({
+        // Use a custom JSX element for the toast content
+        description: (
+          <div className="flex items-center justify-between bg-green-600 rounded-full px-2 sm:px-4 py-1.5 sm:py-2 w-full min-w-[120px] sm:min-w-[140px] max-w-[180px] sm:max-w-[200px] shadow-lg">
+            <div className="flex flex-col items-start">
+              <span className="text-[10px] sm:text-xs text-white/80">Manual bet 2 cashed out</span>
+              <span className="text-sm sm:text-lg font-bold text-white">{manualBet2.multiplier?.toFixed(2)}x</span>
+            </div>
+            <div className="ml-2 sm:ml-4 flex items-center">
+              <span className="bg-green-700 rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-xs sm:text-base font-bold text-white shadow">Win KES {manualBet2.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        ),
+        className: 'p-0 bg-transparent shadow-none',
+        style: { top: 10, left: '50%', transform: 'translateX(-50%)', position: 'fixed', zIndex: 9999, width: 'auto', minWidth: 140, maxWidth: '90vw' },
+      });
+    }
+  }, [manualBet2]);
+
+  useEffect(() => {
+    if (autoBet2 && autoBet2.cashedOut && autoBet2.winAmount && autoBet2.winAmount > 0) {
+      toast({
+        // Use a custom JSX element for the toast content
+        description: (
+          <div className="flex items-center justify-between bg-green-600 rounded-full px-2 sm:px-4 py-1.5 sm:py-2 w-full min-w-[120px] sm:min-w-[140px] max-w-[180px] sm:max-w-[200px] shadow-lg">
+            <div className="flex flex-col items-start">
+              <span className="text-[10px] sm:text-xs text-white/80">Auto bet 2 cashed out</span>
+              <span className="text-sm sm:text-lg font-bold text-white">{autoBet2.multiplier?.toFixed(2)}x</span>
+            </div>
+            <div className="ml-2 sm:ml-4 flex items-center">
+              <span className="bg-green-700 rounded-full px-2 sm:px-3 py-0.5 sm:py-1 text-xs sm:text-base font-bold text-white shadow">Win KES {autoBet2.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        ),
+        className: 'p-0 bg-transparent shadow-none',
+        style: { top: 10, left: '50%', transform: 'translateX(-50%)', position: 'fixed', zIndex: 9999, width: 'auto', minWidth: 140, maxWidth: '90vw' },
+      });
+    }
+  }, [autoBet2]);
 
   // Add state for bet history modal
   const [showBetHistory, setShowBetHistory] = useState(false);
@@ -999,9 +1656,9 @@ function App({ user, setUser }: AppProps) {
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-2 sm:gap-4 p-2 sm:p-4 h-auto lg:h-[calc(100vh-80px)]">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-2 sm:gap-4 p-2 sm:p-4 h-auto xl:h-[calc(100vh-80px)]">
           {/* Left Panel - All Bets */}
-          <div className="lg:col-span-3 order-3 lg:order-1">
+          <div className="xl:col-span-3 order-3 xl:order-1">
             <Card className="h-full bg-zinc-900 border-zinc-800">
               <CardContent className="p-2 sm:p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -1055,7 +1712,7 @@ function App({ user, setUser }: AppProps) {
           </div>
 
           {/* Center Panel - Live Game */}
-          <div className="lg:col-span-6 order-1 lg:order-2">
+          <div className="xl:col-span-6 order-1 xl:order-2">
             <Card className="h-full bg-gradient-to-br from-zinc-900 to-zinc-950 border-zinc-800 overflow-hidden">
               <CardContent className="p-2 sm:p-6 h-full flex flex-col">
                 {/* Audio Toggle Button above xTournament */}
@@ -1101,166 +1758,464 @@ function App({ user, setUser }: AppProps) {
           </div>
 
           {/* Right Panel - Betting Controls */}
-          <div className="lg:col-span-3 order-2 lg:order-3">
-            <Card className="h-full bg-zinc-900 border-zinc-800">
-              <CardContent className="p-2 sm:p-4">
-                <div className="space-y-3 sm:space-y-6">
-                  {/* User Bet Status */}
-                  {userBet && (
-                    <div className="bg-zinc-800 p-2 sm:p-3 rounded-lg border border-zinc-700">
-                      <div className="text-xs sm:text-sm text-zinc-400 mb-1">Your Bet</div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm sm:text-white sm:font-semibold">{userBet.amount.toFixed(2)} KES</span>
-                        {userBet.cashedOut ? (
-                          <span className="text-blue-400 font-semibold">
-                            Cashed out at {userBet.multiplier?.toFixed(2)}x
-                          </span>
-                        ) : gamePhase === 'flying' ? (
-                          <span className="text-yellow-400 font-semibold">Active</span>
-                        ) : (
-                          <span className="text-zinc-400">Waiting</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {/* Bet Amount */}
-                  <div>
-                    <label className="text-xs sm:text-sm text-zinc-400 mb-2 block">Bet Amount</label>
-                    <div className="flex items-center space-x-1 sm:space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => adjustBetAmount(-10)}
-                        className="bg-zinc-800 border-zinc-700"
-                        disabled={betAmount <= 10 || gamePhase !== 'betting'}
-                      >
-                        <Minus className="w-4 h-4" />
-                      </Button>
-                      <div className="flex-1">
-                        <Input
-                          type="number"
-                          value={betAmount}
-                          onChange={(e) => handleBetAmountChange(e.target.value)}
-                          className="bg-zinc-800 border-zinc-700 text-center text-base sm:text-lg font-semibold"
-                          min="10"
-                          max={user.balance}
-                          disabled={gamePhase !== 'betting'}
-                        />
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => adjustBetAmount(10)}
-                        className="bg-zinc-800 border-zinc-700"
-                        disabled={betAmount >= user.balance || gamePhase !== 'betting'}
-                      >
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  {/* Autocash Out Toggle */}
-                  <div>
-                    <label className="text-xs sm:text-sm text-zinc-400 mb-2 block">Auto Cashout</label>
-                    <div className="flex items-center gap-2 mb-2">
-                      <button
-                        onClick={() => setAutoCashoutEnabled(!autoCashoutEnabled)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-zinc-900 ${
-                          autoCashoutEnabled ? 'bg-green-600' : 'bg-zinc-700'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            autoCashoutEnabled ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                      <label className="text-xs sm:text-sm text-zinc-300">
-                        Enable Auto Cashout
-                      </label>
-                    </div>
-                    {autoCashoutEnabled && (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            value={autoCashoutValue}
-                            onChange={(e) => setAutoCashoutValue(Math.max(1.00, parseFloat(e.target.value) || 1.00))}
-                            min="1.00"
-                            max="100.00"
-                            step="0.01"
-                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs sm:text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                            placeholder="2.00"
-                          />
-                          <span className="text-xs sm:text-sm text-zinc-400">x</span>
-                        </div>
-                        {userBet && gamePhase === 'flying' && !userBet.cashedOut && (
-                          <div className="text-xs text-zinc-400">
-                            {currentMultiplier >= autoCashoutValue ? (
-                              <span className="text-green-400">Auto cashout triggered!</span>
-                            ) : (
-                              <span>Will cashout at {autoCashoutValue.toFixed(2)}x (current: {currentMultiplier.toFixed(2)}x)</span>
-                            )}
+          <div className="xl:col-span-3 order-2 xl:order-3">
+            <Card className="h-full bg-gradient-to-br from-zinc-900 to-zinc-950 border-zinc-800 shadow-xl">
+              <CardContent className="p-3 sm:p-4">
+                <div className="space-y-3 sm:space-y-4 lg:space-y-6">
+                  {/* Betting Sections Container - Side by side on medium screens */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3 sm:gap-4">
+                    {/* First Betting Section - Manual/Auto Toggle */}
+                    <div className="bg-gradient-to-br from-zinc-800 to-zinc-700 rounded-xl p-2 sm:p-3 border border-zinc-600 shadow-lg">
+                      {/* Header Bar - Bet/Auto */}
+                      <div className="flex mb-2 sm:mb-4 bg-zinc-900 rounded-lg p-1">
+                        <button 
+                          className={`flex-1 font-semibold py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm transition-all duration-200 ${!autoMode ? 'bg-zinc-700 text-white shadow-sm' : 'bg-zinc-800 text-zinc-300'}`}
+                          onClick={() => setAutoMode(false)}
+                        >
+                          Bet
+                        </button>
+                        <button 
+                          className={`flex-1 font-semibold py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm flex items-center justify-center transition-all duration-200 ${autoMode ? 'bg-zinc-700 text-white shadow-sm' : 'bg-zinc-800 text-zinc-300'}`}
+                          onClick={() => setAutoMode(true)}
+                        >
+                          Auto
+                          <div className="ml-1 w-2 h-2 sm:w-3 sm:h-3 border border-zinc-400 rounded-sm flex items-center justify-center">
+                            <div className="w-1 h-0.5 sm:w-1.5 sm:h-0.5 bg-zinc-400"></div>
                           </div>
-                        )}
+                        </button>
                       </div>
-                    )}
+
+                      {/* Bet Amount Input */}
+                      <div className="flex items-center justify-center mb-2 sm:mb-4">
+                        <button
+                          onClick={() => adjustManualBetAmount(-10)}
+                          className="w-8 h-8 sm:w-10 sm:h-10 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-lg sm:text-xl font-bold transition-all duration-200 shadow-md"
+                          disabled={manualBetAmount <= 10}
+                        >
+                          -
+                        </button>
+                        <div className="mx-2 sm:mx-4 text-center">
+                          <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-white">
+                            {manualBetAmount.toFixed(2)}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => adjustManualBetAmount(10)}
+                          className="w-8 h-8 sm:w-10 sm:h-10 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-lg sm:text-xl font-bold transition-all duration-200 shadow-md"
+                          disabled={manualBetAmount >= user.balance}
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {/* Quick Bet Buttons */}
+                      <div className="grid grid-cols-2 gap-1 sm:gap-2 mb-2 sm:mb-4">
+                        <button
+                          onClick={() => handleManualPresetAmount(100)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          100
+                        </button>
+                        <button
+                          onClick={() => handleManualPresetAmount(200)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          200
+                        </button>
+                        <button
+                          onClick={() => handleManualPresetAmount(500)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          500
+                        </button>
+                        <button
+                          onClick={() => handleManualPresetAmount(20000)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          20,000
+                        </button>
+                      </div>
+
+                      {/* Auto Cashout Multiplier Input - Only show in auto mode */}
+                      {autoMode && (
+                        <div className="mb-2 sm:mb-4">
+                          <div className="text-xs sm:text-sm text-zinc-300 mb-1 sm:mb-2 text-center">Auto Cashout at</div>
+                          <div className="flex items-center justify-center mb-2 sm:mb-3">
+                            <button
+                              onClick={() => adjustAutoCashoutMultiplier(-0.1)}
+                              className="w-6 h-6 sm:w-8 sm:h-8 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-xs sm:text-sm font-bold transition-all duration-200 shadow-md"
+                              disabled={autoCashoutMultiplier <= 1.1}
+                            >
+                              -
+                            </button>
+                            <div className="mx-2 sm:mx-3 text-center">
+                              <div className="text-lg sm:text-xl font-bold text-white">
+                                {autoCashoutMultiplier.toFixed(1)}x
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => adjustAutoCashoutMultiplier(0.1)}
+                              className="w-6 h-6 sm:w-8 sm:h-8 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-xs sm:text-sm font-bold transition-all duration-200 shadow-md"
+                              disabled={autoCashoutMultiplier >= 100}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1 sm:gap-2">
+                            <button
+                              onClick={() => handleAutoCashoutPreset(1.5)}
+                              className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1 sm:py-2 px-1 sm:px-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm"
+                            >
+                              1.5x
+                            </button>
+                            <button
+                              onClick={() => handleAutoCashoutPreset(2.0)}
+                              className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1 sm:py-2 px-1 sm:px-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm"
+                            >
+                              2.0x
+                            </button>
+                            <button
+                              onClick={() => handleAutoCashoutPreset(5.0)}
+                              className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1 sm:py-2 px-1 sm:px-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm"
+                            >
+                              5.0x
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Place Bet Button */}
+                      {autoMode ? (
+                        // Auto Bet Button Logic
+                        autoBet && !autoBet.cashedOut ? (
+                          <button
+                            disabled
+                            className="w-full bg-gradient-to-r from-zinc-600 to-zinc-700 text-white font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg"
+                          >
+                            <div className="text-sm sm:text-lg">Auto Bet Active</div>
+                            <div className="text-xs sm:text-sm opacity-90">{autoBet.amount.toFixed(2)} KES</div>
+                            {autoBet.cashoutMultiplier && (
+                              <div className="text-xs opacity-75">Cashout at {autoBet.cashoutMultiplier.toFixed(1)}x</div>
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={
+                              autoPendingBet !== null
+                                ? () => setAutoPendingBet(null)
+                                : autoQueuedBet !== null
+                                ? () => setAutoQueuedBet(null)
+                                : gamePhase === 'betting'
+                                ? () => setAutoPendingBet(manualBetAmount)
+                                : gamePhase === 'flying'
+                                ? () => setAutoQueuedBet(manualBetAmount)
+                                : undefined
+                            }
+                            disabled={manualBetAmount < 10 || manualBetAmount > user.balance || gamePhase === 'crashed' || gamePhase === 'wait'}
+                            className={`w-full font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg transform hover:scale-[1.02] active:scale-[0.98] ${
+                              autoPendingBet !== null || autoQueuedBet !== null
+                                ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white' 
+                                : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-zinc-700 disabled:to-zinc-800 disabled:text-zinc-500 text-white'
+                            }`}
+                          >
+                            <div className="text-sm sm:text-lg">
+                              {autoPendingBet !== null ? 'Cancel' : 
+                               autoQueuedBet !== null ? 'Waiting for Next Round' :
+                               gamePhase === 'betting' ? `Auto Bet ${manualBetAmount.toFixed(2)} KES` : 
+                               gamePhase === 'flying' ? `Auto Bet ${manualBetAmount.toFixed(2)} KES` : 
+                               gamePhase === 'crashed' ? 'Round Crashed' : 
+                               gamePhase === 'wait' ? 'Waiting...' : `Auto Bet ${manualBetAmount.toFixed(2)} KES`}
+                            </div>
+                            <div className="text-xs opacity-75">Cashout at {autoCashoutMultiplier.toFixed(1)}x</div>
+                          </button>
+                        )
+                      ) : (
+                        // Manual Bet Button Logic
+                        manualBet && !manualBet.cashedOut ? (
+                          <button
+                            onClick={gamePhase === 'flying' && manualBet && !manualBet.cashedOut && crashPoint && currentMultiplier < crashPoint ? handleManualCashOut : undefined}
+                            disabled={!(gamePhase === 'flying' && manualBet && !manualBet.cashedOut && crashPoint && currentMultiplier < crashPoint)}
+                            className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 disabled:from-zinc-600 disabled:to-zinc-700 disabled:text-zinc-500 text-black font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
+                          >
+                            <div className="text-sm sm:text-lg">CASHOUT</div>
+                            <div className="text-xs sm:text-sm opacity-90">{(manualBet.amount * currentMultiplier).toFixed(2)} KES</div>
+                          </button>
+                        ) : manualBet && manualBet.cashedOut ? (
+                          <button
+                            disabled
+                            className={`w-full font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg ${manualBet.winAmount && manualBet.winAmount > 0 ? 'bg-gradient-to-r from-green-600 to-green-700 text-white' : 'bg-gradient-to-r from-red-600 to-red-700 text-white'}`}
+                          >
+                            <div className="text-sm sm:text-lg">
+                              {manualBet.winAmount && manualBet.winAmount > 0
+                                ? `+${(manualBet.amount * (manualBet.multiplier || 1)).toFixed(2)} KES`
+                                : `-${manualBet.amount.toFixed(2)} KES`}
+                            </div>
+                            <div className="text-xs sm:text-sm opacity-90">
+                              {manualBet.multiplier ? `${manualBet.multiplier.toFixed(2)}x` : 'Crashed'}
+                            </div>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={
+                              manualPendingBet !== null
+                                ? () => setManualPendingBet(null)
+                                : manualQueuedBet !== null
+                                ? () => setManualQueuedBet(null)
+                                : gamePhase === 'betting'
+                                ? () => setManualPendingBet(manualBetAmount)
+                                : gamePhase === 'flying'
+                                ? () => setManualQueuedBet(manualBetAmount)
+                                : undefined
+                            }
+                            disabled={manualBetAmount < 10 || manualBetAmount > user.balance || gamePhase === 'crashed' || gamePhase === 'wait'}
+                            className={`w-full font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg transform hover:scale-[1.02] active:scale-[0.98] ${
+                              manualPendingBet !== null || manualQueuedBet !== null
+                                ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white' 
+                                : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-zinc-700 disabled:to-zinc-800 disabled:text-zinc-500 text-white'
+                            }`}
+                          >
+                            <div className="text-sm sm:text-lg">
+                              {manualPendingBet !== null ? 'Cancel' : 
+                               manualQueuedBet !== null ? 'Waiting for Next Round' :
+                               gamePhase === 'betting' ? 'Bet' : 
+                               gamePhase === 'flying' ? 'Bet' : 
+                               gamePhase === 'crashed' ? 'Round Crashed' : 
+                               gamePhase === 'wait' ? 'Waiting...' : 'Bet'}
+                            </div>
+                            <div className="text-xs sm:text-sm opacity-90">{manualBetAmount.toFixed(2)} KES</div>
+                          </button>
+                        )
+                      )}
+                    </div>
+
+                    {/* Second Betting Section - Manual/Auto Toggle */}
+                    <div className="bg-gradient-to-br from-zinc-800 to-zinc-700 rounded-xl p-2 sm:p-3 border border-zinc-600 shadow-lg">
+                      {/* Header Bar - Bet/Auto */}
+                      <div className="flex mb-2 sm:mb-4 bg-zinc-900 rounded-lg p-1">
+                        <button 
+                          className={`flex-1 font-semibold py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm transition-all duration-200 ${!autoMode2 ? 'bg-zinc-700 text-white shadow-sm' : 'bg-zinc-800 text-zinc-300'}`}
+                          onClick={() => setAutoMode2(false)}
+                        >
+                          Bet
+                        </button>
+                        <button 
+                          className={`flex-1 font-semibold py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm flex items-center justify-center transition-all duration-200 ${autoMode2 ? 'bg-zinc-700 text-white shadow-sm' : 'bg-zinc-800 text-zinc-300'}`}
+                          onClick={() => setAutoMode2(true)}
+                        >
+                          Auto
+                          <div className="ml-1 w-2 h-2 sm:w-3 sm:h-3 border border-zinc-400 rounded-sm flex items-center justify-center">
+                            <div className="w-1 h-0.5 sm:w-1.5 sm:h-0.5 bg-zinc-400"></div>
+                          </div>
+                        </button>
+                      </div>
+
+                      {/* Bet Amount Input */}
+                      <div className="flex items-center justify-center mb-2 sm:mb-4">
+                        <button
+                          onClick={() => adjustManualBetAmount2(-10)}
+                          className="w-8 h-8 sm:w-10 sm:h-10 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-lg sm:text-xl font-bold transition-all duration-200 shadow-md"
+                          disabled={manualBetAmount2 <= 10}
+                        >
+                          -
+                        </button>
+                        <div className="mx-2 sm:mx-4 text-center">
+                          <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-white">
+                            {manualBetAmount2.toFixed(2)}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => adjustManualBetAmount2(10)}
+                          className="w-8 h-8 sm:w-10 sm:h-10 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-lg sm:text-xl font-bold transition-all duration-200 shadow-md"
+                          disabled={manualBetAmount2 >= user.balance}
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {/* Quick Bet Buttons */}
+                      <div className="grid grid-cols-2 gap-1 sm:gap-2 mb-2 sm:mb-4">
+                        <button
+                          onClick={() => handleManualPresetAmount2(100)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          100
+                        </button>
+                        <button
+                          onClick={() => handleManualPresetAmount2(200)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          200
+                        </button>
+                        <button
+                          onClick={() => handleManualPresetAmount2(500)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          500
+                        </button>
+                        <button
+                          onClick={() => handleManualPresetAmount2(20000)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
+                        >
+                          20,000
+                        </button>
+                      </div>
+
+                      {/* Auto Cashout Multiplier Input - Only show in auto mode */}
+                      {autoMode2 && (
+                        <div className="mb-2 sm:mb-4">
+                          <div className="text-xs sm:text-sm text-zinc-300 mb-1 sm:mb-2 text-center">Auto Cashout at</div>
+                          <div className="flex items-center justify-center mb-2 sm:mb-3">
+                            <button
+                              onClick={() => adjustAutoCashoutMultiplier2(-0.1)}
+                              className="w-6 h-6 sm:w-8 sm:h-8 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-xs sm:text-sm font-bold transition-all duration-200 shadow-md"
+                              disabled={autoCashoutMultiplier2 <= 1.1}
+                            >
+                              -
+                            </button>
+                            <div className="mx-2 sm:mx-3 text-center">
+                              <div className="text-lg sm:text-xl font-bold text-white">
+                                {autoCashoutMultiplier2.toFixed(1)}x
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => adjustAutoCashoutMultiplier2(0.1)}
+                              className="w-6 h-6 sm:w-8 sm:h-8 bg-zinc-700 hover:bg-zinc-600 text-white rounded-full flex items-center justify-center text-xs sm:text-sm font-bold transition-all duration-200 shadow-md"
+                              disabled={autoCashoutMultiplier2 >= 100}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1 sm:gap-2">
+                            <button
+                              onClick={() => handleAutoCashoutPreset2(1.5)}
+                              className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1 sm:py-2 px-1 sm:px-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm"
+                            >
+                              1.5x
+                            </button>
+                            <button
+                              onClick={() => handleAutoCashoutPreset2(2.0)}
+                              className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1 sm:py-2 px-1 sm:px-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm"
+                            >
+                              2.0x
+                            </button>
+                            <button
+                              onClick={() => handleAutoCashoutPreset2(5.0)}
+                              className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1 sm:py-2 px-1 sm:px-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm"
+                            >
+                              5.0x
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Place Bet Button */}
+                      {autoMode2 ? (
+                        // Auto Bet Button Logic
+                        autoBet2 && !autoBet2.cashedOut ? (
+                          <button
+                            disabled
+                            className="w-full bg-gradient-to-r from-zinc-600 to-zinc-700 text-white font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg"
+                          >
+                            <div className="text-sm sm:text-lg">Auto Bet Active</div>
+                            <div className="text-xs sm:text-sm opacity-90">{autoBet2.amount.toFixed(2)} KES</div>
+                            {autoBet2.cashoutMultiplier && (
+                              <div className="text-xs opacity-75">Cashout at {autoBet2.cashoutMultiplier.toFixed(1)}x</div>
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={
+                              autoPendingBet2 !== null
+                                ? () => setAutoPendingBet2(null)
+                                : autoQueuedBet2 !== null
+                                ? () => setAutoQueuedBet2(null)
+                                : gamePhase === 'betting'
+                                ? () => setAutoPendingBet2(manualBetAmount2)
+                                : gamePhase === 'flying'
+                                ? () => setAutoQueuedBet2(manualBetAmount2)
+                                : undefined
+                            }
+                            disabled={manualBetAmount2 < 10 || manualBetAmount2 > user.balance || gamePhase === 'crashed' || gamePhase === 'wait'}
+                            className={`w-full font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg transform hover:scale-[1.02] active:scale-[0.98] ${
+                              autoPendingBet2 !== null || autoQueuedBet2 !== null
+                                ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white' 
+                                : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-zinc-700 disabled:to-zinc-800 disabled:text-zinc-500 text-white'
+                            }`}
+                          >
+                            <div className="text-sm sm:text-lg">
+                              {autoPendingBet2 !== null ? 'Cancel' : 
+                               autoQueuedBet2 !== null ? 'Waiting for Next Round' :
+                               gamePhase === 'betting' ? `Auto Bet ${manualBetAmount2.toFixed(2)} KES` : 
+                               gamePhase === 'flying' ? `Auto Bet ${manualBetAmount2.toFixed(2)} KES` : 
+                               gamePhase === 'crashed' ? 'Round Crashed' : 
+                               gamePhase === 'wait' ? 'Waiting...' : `Auto Bet ${manualBetAmount2.toFixed(2)} KES`}
+                            </div>
+                            <div className="text-xs opacity-75">Cashout at {autoCashoutMultiplier2.toFixed(1)}x</div>
+                          </button>
+                        )
+                      ) : (
+                        // Manual Bet Button Logic
+                        manualBet2 && !manualBet2.cashedOut ? (
+                          <button
+                            onClick={gamePhase === 'flying' && manualBet2 && !manualBet2.cashedOut && crashPoint && currentMultiplier < crashPoint ? handleManualCashOut2 : undefined}
+                            disabled={!(gamePhase === 'flying' && manualBet2 && !manualBet2.cashedOut && crashPoint && currentMultiplier < crashPoint)}
+                            className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 disabled:from-zinc-600 disabled:to-zinc-700 disabled:text-zinc-500 text-black font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
+                          >
+                            <div className="text-sm sm:text-lg">CASHOUT</div>
+                            <div className="text-xs sm:text-sm opacity-90">{(manualBet2.amount * currentMultiplier).toFixed(2)} KES</div>
+                          </button>
+                        ) : manualBet2 && manualBet2.cashedOut ? (
+                          <button
+                            disabled
+                            className={`w-full font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg ${manualBet2.winAmount && manualBet2.winAmount > 0 ? 'bg-gradient-to-r from-green-600 to-green-700 text-white' : 'bg-gradient-to-r from-red-600 to-red-700 text-white'}`}
+                          >
+                            <div className="text-sm sm:text-lg">
+                              {manualBet2.winAmount && manualBet2.winAmount > 0
+                                ? `+${(manualBet2.amount * (manualBet2.multiplier || 1)).toFixed(2)} KES`
+                                : `-${manualBet2.amount.toFixed(2)} KES`}
+                            </div>
+                            <div className="text-xs sm:text-sm opacity-90">
+                              {manualBet2.multiplier ? `${manualBet2.multiplier.toFixed(2)}x` : 'Crashed'}
+                            </div>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={
+                              manualPendingBet2 !== null
+                                ? () => setManualPendingBet2(null)
+                                : manualQueuedBet2 !== null
+                                ? () => setManualQueuedBet2(null)
+                                : gamePhase === 'betting'
+                                ? () => setManualPendingBet2(manualBetAmount2)
+                                : gamePhase === 'flying'
+                                ? () => setManualQueuedBet2(manualBetAmount2)
+                                : undefined
+                            }
+                            disabled={manualBetAmount2 < 10 || manualBetAmount2 > user.balance || gamePhase === 'crashed' || gamePhase === 'wait'}
+                            className={`w-full font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg transform hover:scale-[1.02] active:scale-[0.98] ${
+                              manualPendingBet2 !== null || manualQueuedBet2 !== null
+                                ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white' 
+                                : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-zinc-700 disabled:to-zinc-800 disabled:text-zinc-500 text-white'
+                            }`}
+                          >
+                            <div className="text-sm sm:text-lg">
+                              {manualPendingBet2 !== null ? 'Cancel' : 
+                               manualQueuedBet2 !== null ? 'Waiting for Next Round' :
+                               gamePhase === 'betting' ? 'Bet' : 
+                               gamePhase === 'flying' ? 'Bet' : 
+                               gamePhase === 'crashed' ? 'Round Crashed' : 
+                               gamePhase === 'wait' ? 'Waiting...' : 'Bet'}
+                            </div>
+                            <div className="text-xs sm:text-sm opacity-90">{manualBetAmount2.toFixed(2)} KES</div>
+                          </button>
+                        )
+                      )}
+                    </div>
                   </div>
-                  {/* Action Button */}
-                  {userBet && gamePhase === 'flying' ? (
-                    !userBet.cashedOut ? (
-                      <Button
-                        onClick={canCashOut ? handleCashOut : undefined}
-                        disabled={!canCashOut}
-                        className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-yellow-400 text-black rounded-full cursor-pointer border-none focus:outline-none"
-                        style={{ boxShadow: 'none' }}
-                      >
-                        CASHOUT {(userBet.amount * currentMultiplier).toFixed(2)} KES
-                      </Button>
-                    ) : (
-                      <Button
-                        disabled
-                        className={`w-full h-12 sm:h-16 text-lg sm:text-xl font-bold rounded-full border-none focus:outline-none ${userBet.winAmount && userBet.winAmount > 0 ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
-                        style={{ boxShadow: 'none' }}
-                      >
-                        {userBet.winAmount && userBet.winAmount > 0
-                          ? `+KES ${(userBet.amount * (userBet.multiplier || 1)).toLocaleString()}`
-                          : `-KES ${userBet.amount.toLocaleString()}`}
-                      </Button>
-                    )
-                  ) : (
-                    pendingBetAmount !== null ? (
-                      <Button
-                        onClick={() => setPendingBetAmount(null)}
-                        className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-red-600 text-white rounded-full border-none focus:outline-none"
-                      >
-                        Cancel
-                      </Button>
-                    ) : queuedBetAmount !== null ? (
-                      <Button
-                        onClick={() => setQueuedBetAmount(null)}
-                        className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-red-600 text-white rounded-full border-none focus:outline-none"
-                      >
-                        Waiting for Next round
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={
-                          gamePhase === 'betting'
-                            ? () => setPendingBetAmount(betAmount)
-                            : gamePhase === 'flying'
-                              ? () => setQueuedBetAmount(betAmount)
-                              : undefined
-                        }
-                        disabled={betAmount < 10 || betAmount > user.balance || pendingBetAmount !== null || queuedBetAmount !== null}
-                        className="w-full h-12 sm:h-16 text-lg sm:text-xl font-bold bg-green-600 transition-all duration-200 rounded-full"
-                      >
-                        {`Bet ${betAmount.toFixed(2)} KES`}
-                      </Button>
-                    )
-                  )}
+
                   {/* Game Status */}
-                  <div className="text-center space-y-1 sm:space-y-2">
-                    <div className="text-xs sm:text-sm text-zinc-400">
+                  <div className="text-center space-y-1 sm:space-y-2 bg-zinc-800 rounded-xl p-2 sm:p-3 border border-zinc-700">
+                    <div className="text-xs sm:text-sm text-zinc-400 font-medium">
                       {gamePhase === 'betting' ? `Betting closes in ${countdown}s` : 
                        gamePhase === 'flying' ? 'Multiplier rising...' : 
                        ''}
