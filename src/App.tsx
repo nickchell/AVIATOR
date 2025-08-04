@@ -747,9 +747,7 @@ function App({ user, setUser }: AppProps) {
     setAutoBetAmount((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
   };
 
-  const handleManualPresetAmount = (amount: number) => {
-    setManualBetAmount(Math.min(amount, user.balance));
-  };
+
 
   // @ts-ignore
   const handleAutoPresetAmount = (amount: number) => {
@@ -778,9 +776,7 @@ function App({ user, setUser }: AppProps) {
     setAutoBetAmount2((prev: number) => Math.max(10, Math.min(prev + delta, user.balance)));
   };
 
-  const handleManualPresetAmount2 = (amount: number) => {
-    setManualBetAmount2(Math.min(amount, user.balance));
-  };
+
 
   // @ts-ignore
   const handleAutoPresetAmount2 = (amount: number) => {
@@ -1795,9 +1791,20 @@ function App({ user, setUser }: AppProps) {
                           -
                         </button>
                         <div className="mx-2 sm:mx-4 text-center">
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-white">
-                            {manualBetAmount.toFixed(2)}
-                          </div>
+                          <input
+                            type="number"
+                            value={manualBetAmount}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0;
+                              if (value >= 10 && value <= user.balance) {
+                                setManualBetAmount(value);
+                              }
+                            }}
+                            className="text-xl sm:text-2xl lg:text-3xl font-bold text-white bg-transparent border-none outline-none text-center w-24 sm:w-32 lg:w-40"
+                            min="10"
+                            max={user.balance}
+                            step="10"
+                          />
                         </div>
                         <button
                           onClick={() => adjustManualBetAmount(10)}
@@ -1805,34 +1812,6 @@ function App({ user, setUser }: AppProps) {
                           disabled={manualBetAmount >= user.balance}
                         >
                           +
-                        </button>
-                      </div>
-
-                      {/* Quick Bet Buttons */}
-                      <div className="grid grid-cols-2 gap-1 sm:gap-2 mb-2 sm:mb-4">
-                        <button
-                          onClick={() => handleManualPresetAmount(100)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          100
-                        </button>
-                        <button
-                          onClick={() => handleManualPresetAmount(200)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          200
-                        </button>
-                        <button
-                          onClick={() => handleManualPresetAmount(500)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          500
-                        </button>
-                        <button
-                          onClick={() => handleManualPresetAmount(20000)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          20,000
                         </button>
                       </div>
 
@@ -2019,9 +1998,20 @@ function App({ user, setUser }: AppProps) {
                           -
                         </button>
                         <div className="mx-2 sm:mx-4 text-center">
-                          <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-white">
-                            {manualBetAmount2.toFixed(2)}
-                          </div>
+                          <input
+                            type="number"
+                            value={manualBetAmount2}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0;
+                              if (value >= 10 && value <= user.balance) {
+                                setManualBetAmount2(value);
+                              }
+                            }}
+                            className="text-xl sm:text-2xl lg:text-3xl font-bold text-white bg-transparent border-none outline-none text-center w-24 sm:w-32 lg:w-40"
+                            min="10"
+                            max={user.balance}
+                            step="10"
+                          />
                         </div>
                         <button
                           onClick={() => adjustManualBetAmount2(10)}
@@ -2029,34 +2019,6 @@ function App({ user, setUser }: AppProps) {
                           disabled={manualBetAmount2 >= user.balance}
                         >
                           +
-                        </button>
-                      </div>
-
-                      {/* Quick Bet Buttons */}
-                      <div className="grid grid-cols-2 gap-1 sm:gap-2 mb-2 sm:mb-4">
-                        <button
-                          onClick={() => handleManualPresetAmount2(100)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          100
-                        </button>
-                        <button
-                          onClick={() => handleManualPresetAmount2(200)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          200
-                        </button>
-                        <button
-                          onClick={() => handleManualPresetAmount2(500)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          500
-                        </button>
-                        <button
-                          onClick={() => handleManualPresetAmount2(20000)}
-                          className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm"
-                        >
-                          20,000
                         </button>
                       </div>
 
