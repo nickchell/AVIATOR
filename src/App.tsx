@@ -62,7 +62,7 @@ interface Bet {
 
 // Update preset amounts
 const BETTING_PHASE_DURATION = 6; // seconds
-const WAIT_PHASE_DURATION = 3; // seconds for wait phase between rounds
+// Removed WAIT_PHASE_DURATION - socket server controls wait phase timing
 
 // Socket.IO configuration
 const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'https://aviator-socket-server.onrender.com';
@@ -85,7 +85,7 @@ const MOCK_PLAYERS = [
 function App({ user, setUser }: AppProps) {
   const [gamePhase, setGamePhase] = useState<GamePhase>('betting');
   const [countdown, setCountdown] = useState<number>(BETTING_PHASE_DURATION);
-  const [waitCountdown, setWaitCountdown] = useState<number>(WAIT_PHASE_DURATION);
+  // Removed waitCountdown - socket server controls all phase transitions
   const [currentMultiplier, setCurrentMultiplier] = useState<number>(1.00);
   
   // Socket.IO connection
@@ -518,15 +518,13 @@ function App({ user, setUser }: AppProps) {
     return 10; // Fallback to minimum bet
   }
 
-  // Robust betting phase countdown
+  // Display countdown timer (doesn't control phase transitions)
   useEffect(() => {
     if (gamePhase === 'betting' && countdown > 0) {
       const timer = setTimeout(() => {
         setCountdown((prev: number) => prev - 1);
       }, 1000);
       return () => clearTimeout(timer);
-    } else if (gamePhase === 'betting' && countdown === 0) {
-      setGamePhase('flying');
     }
   }, [gamePhase, countdown]);
 
@@ -650,39 +648,13 @@ function App({ user, setUser }: AppProps) {
         crashBetInDb('auto');
       }
 
-      // Start next round after crash phase
-      const timer = setTimeout(() => {
-        setGamePhase('wait');
-        setWaitCountdown(WAIT_PHASE_DURATION);
-        // Don't reset multiplier here - keep crash value visible
-        setManualBet(null);
-        setAutoBet(null);
-        setManualBet2(null);
-        setAutoBet2(null);
-        // Reset database IDs for new round
-        setManualBetDbId(null);
-        setAutoBetDbId(null);
-        setManualBetDbId2(null);
-        setAutoBetDbId2(null);
-      }, 2000); // 2 seconds to show crash result
-
-      return () => clearTimeout(timer);
+      // Don't control phase transitions - let socket server handle it
+      // The socket server will send round:start events to transition to next round
     }
   }, [gamePhase, crashPoint, manualBet, autoBet, manualBet2, autoBet2]);
 
-  // Handle wait phase countdown
-  useEffect(() => {
-    if (gamePhase === 'wait' && waitCountdown > 0) {
-      const timer = setTimeout(() => {
-        setWaitCountdown((prev: number) => prev - 1);
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else if (gamePhase === 'wait' && waitCountdown === 0) {
-      // Transition to betting phase
-      setGamePhase('betting');
-      setCountdown(BETTING_PHASE_DURATION);
-    }
-  }, [gamePhase, waitCountdown]);
+  // Remove frontend wait phase countdown - let socket server control all phase transitions
+  // The socket server will send round:start events to transition from wait to betting
 
   // Animate displayedBetCount during betting phase (robust, never overshoots, resets per round)
   useEffect(() => {
@@ -1124,6 +1096,8 @@ function App({ user, setUser }: AppProps) {
       console.log(`📊 Received game state: round ${data.currentRound}, phase ${data.phase}, current frontend round ${currentRound}`);
       setGamePhase(data.phase);
       setCurrentRound(data.currentRound);
+      // Update ref immediately to prevent race conditions
+      currentRoundRef.current = data.currentRound;
       setCurrentMultiplier(data.currentMultiplier);
       setCrashPoint(data.crashPoint);
     });
@@ -1131,6 +1105,8 @@ function App({ user, setUser }: AppProps) {
     newSocket.on('round:info', (data: any) => {
       console.log(`📋 Round info: ${data.round}, phase ${data.phase}, multiplier ${data.multiplier}`);
       setCurrentRound(data.round);
+      // Update ref immediately to prevent race conditions
+      currentRoundRef.current = data.round;
       setGamePhase(data.phase);
       setCurrentMultiplier(data.multiplier);
       setCrashPoint(data.crashPoint);
@@ -1139,6 +1115,8 @@ function App({ user, setUser }: AppProps) {
     newSocket.on('round:flying', (data: any) => {
       console.log(`✈️ Joining flying round: ${data.round}, multiplier ${data.multiplier}`);
       setCurrentRound(data.round);
+      // Update ref immediately to prevent race conditions
+      currentRoundRef.current = data.round;
       setGamePhase('flying');
       setCurrentMultiplier(data.multiplier);
       setCrashPoint(data.crashPoint);
@@ -1149,6 +1127,8 @@ function App({ user, setUser }: AppProps) {
       console.log(`🎮 Round started: ${data.round}, current frontend round ${currentRoundRef.current}`);
       console.log(`🎯 Setting currentRound from ${currentRoundRef.current} to ${data.round}`);
       setCurrentRound(data.round);
+      // Update ref immediately to prevent race conditions
+      currentRoundRef.current = data.round;
       setCrashPoint(data.crashPoint);
       setGamePhase('betting');
       setCountdown(BETTING_PHASE_DURATION);
@@ -1180,16 +1160,25 @@ function App({ user, setUser }: AppProps) {
         console.log(`📈 Multiplier update: round ${data.round}, multiplier ${data.multiplier.toFixed(2)}, current frontend round ${currentRoundRef.current}`);
       }
       
-      if (data.round === currentRoundRef.current) {
+      // Accept multiplier updates for current round or if we're in flying phase
+      if (data.round === currentRoundRef.current || gamePhase === 'flying') {
         setCurrentMultiplier(data.multiplier);
       } else {
-        console.log(`⚠️ Round mismatch: received ${data.round}, expected ${currentRoundRef.current}`);
+        console.log(`⚠️ Round mismatch: received ${data.round}, expected ${currentRoundRef.current}, but accepting anyway to prevent desync`);
+        setCurrentMultiplier(data.multiplier);
       }
     });
 
     newSocket.on('round:crash', (data: RoundCrashData) => {
-      if (data.round === currentRoundRef.current) {
+      // Accept crash events for current round or if we're in flying phase
+      if (data.round === currentRoundRef.current || gamePhase === 'flying') {
         console.log(`💥 CRASH: Setting crash point to ${data.crashPoint}x`);
+        setGamePhase('crashed');
+        setCurrentMultiplier(data.crashPoint);
+        setCrashPoint(data.crashPoint);
+        setShowCrashUI(true);
+      } else {
+        console.log(`⚠️ Crash round mismatch: received ${data.round}, expected ${currentRoundRef.current}, but accepting anyway to prevent desync`);
         setGamePhase('crashed');
         setCurrentMultiplier(data.crashPoint);
         setCrashPoint(data.crashPoint);
