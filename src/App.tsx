@@ -58,7 +58,11 @@ interface Bet {
   betType?: 'manual' | 'auto'; // Add bet type to distinguish between manual and auto bets
 }
 
-// PreviousMultiplier interface removed - no longer needed with Socket.IO integration
+interface RecentMultiplier {
+  round: number;
+  multiplier: number;
+  color: string;
+}
 
 // Update preset amounts
 const BETTING_PHASE_DURATION = 6; // seconds
@@ -93,6 +97,9 @@ function App({ user, setUser }: AppProps) {
   const [currentRound, setCurrentRound] = useState<number>(0);
   const currentRoundRef = useRef<number>(0); // Add ref to track current round
   
+  // Recent multipliers state
+  const [recentMultipliers, setRecentMultipliers] = useState<RecentMultiplier[]>([]);
+  
   // Always use user.balance from props. No local balance state.
 
   // Update balance in Supabase and refetch user
@@ -105,6 +112,54 @@ function App({ user, setUser }: AppProps) {
       .update({ balance: newBalance })
       .eq('id', user.id);
     if (error) console.error('Error updating balance:', error);
+  };
+
+  // Fetch recent multipliers from socket server
+  const fetchRecentMultipliers = async () => {
+    try {
+      const response = await fetch(`${SOCKET_SERVER_URL}/debug`);
+      const data = await response.json();
+      
+      console.log('🔍 Debug data received:', {
+        currentRound: data.currentRound,
+        gamePhase: data.gamePhase,
+        roundMultipliersCount: data.roundMultipliers?.length || 0,
+        mostRecentRound: data.roundMultipliers?.[0]?.[0],
+        mostRecentMultiplier: data.roundMultipliers?.[0]?.[1]
+      });
+      
+      if (data.roundMultipliers && Array.isArray(data.roundMultipliers)) {
+        const multipliers: RecentMultiplier[] = data.roundMultipliers
+          .map(([round, multiplier]: [number, number]) => {
+            // Determine color based on multiplier value
+            let color = 'text-red-400';
+            if (multiplier >= 2 && multiplier < 5) {
+              color = 'text-green-400';
+            } else if (multiplier >= 5 && multiplier < 10) {
+              color = 'text-blue-400';
+            } else if (multiplier >= 10 && multiplier < 20) {
+              color = 'text-purple-400';
+            } else if (multiplier >= 20) {
+              color = 'text-pink-400';
+            }
+            
+            return {
+              round,
+              multiplier,
+              color
+            };
+          });
+        
+        console.log('📊 Processed multipliers:', multipliers.slice(0, 3).map(m => `${m.round}:${m.multiplier}`).join(', '));
+        
+        // Only update if the data has actually changed
+        // Always update to get the latest data immediately after crashes
+        setRecentMultipliers(multipliers);
+        console.log(`📊 Updated recent multipliers: ${multipliers.length} items`);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching recent multipliers:', error);
+    }
   };
 
   // Handle deposit - redirect to Paystack with prefilled amount
@@ -1097,9 +1152,13 @@ function App({ user, setUser }: AppProps) {
 
       // Connection events
       newSocket.on('connect', () => {
-        console.log('🔌 Connected to Socket.IO server');
-        setIsConnected(true);
-        reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+                  console.log('🔌 Connected to Socket.IO server');
+          setIsConnected(true);
+          reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+          fetchRecentMultipliers(); // Fetch recent multipliers on connection
+        
+        // Fetch recent multipliers when connected
+        fetchRecentMultipliers();
       });
 
       newSocket.on('disconnect', (reason) => {
@@ -1248,12 +1307,28 @@ function App({ user, setUser }: AppProps) {
             setCurrentMultiplier(data.crashPoint);
             setCrashPoint(data.crashPoint);
             setShowCrashUI(true);
+            
+            // Fetch updated recent multipliers immediately after crash
+            fetchRecentMultipliers();
+            
+            // Also fetch again after a short delay to ensure we get the latest data
+            setTimeout(() => {
+              fetchRecentMultipliers();
+            }, 1000);
           } else {
             console.log(`⚠️ Crash round mismatch: received ${data.round}, expected ${currentRoundRef.current}, but accepting anyway to prevent desync`);
             setGamePhase('crashed');
             setCurrentMultiplier(data.crashPoint);
             setCrashPoint(data.crashPoint);
             setShowCrashUI(true);
+            
+            // Fetch updated recent multipliers immediately after crash
+            fetchRecentMultipliers();
+            
+            // Also fetch again after a short delay to ensure we get the latest data
+            setTimeout(() => {
+              fetchRecentMultipliers();
+            }, 1000);
           }
         } else {
           console.warn('⚠️ Invalid crash data received:', data);
@@ -1281,7 +1356,16 @@ function App({ user, setUser }: AppProps) {
     console.log(`📱 Connected to socket server, waiting for current state...`);
   }, []);
 
+  // Periodically refresh recent multipliers
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isConnected) {
+        fetchRecentMultipliers();
+      }
+    }, 5000); // Refresh every 5 seconds for immediate updates after crashes
 
+    return () => clearInterval(interval);
+  }, [isConnected]);
 
   // Handle manual pending bet placement
   useEffect(() => {
@@ -1807,9 +1891,24 @@ function App({ user, setUser }: AppProps) {
                   </div>
                 </div>
 
-                {/* Previous multipliers as colored chips */}
-                <div className="flex flex-row gap-1 mb-4">
-                  <span className="text-zinc-500 text-xs">Live multipliers from Socket.IO</span>
+                {/* Recent multipliers as colored chips */}
+                <div className="mb-4 overflow-hidden">
+                  <ScrollArea className="w-full">
+                    <div className="flex space-x-2 pb-2">
+                      {recentMultipliers.length > 0 ? (
+                        recentMultipliers.map((mult, index) => (
+                          <div
+                            key={index}
+                            className={`${mult.color} text-sm font-semibold whitespace-nowrap px-2 py-1 rounded bg-zinc-800/50 border border-zinc-700`}
+                          >
+                            {mult.multiplier.toFixed(2)}x
+                          </div>
+                        ))
+                      ) : (
+                        <span className="text-zinc-500 text-xs">Loading recent multipliers...</span>
+                      )}
+                    </div>
+                  </ScrollArea>
                 </div>
                 {/* Main Game Area */}
                 <div className="flex-1 flex items-center justify-center relative min-h-[180px]">
