@@ -1034,7 +1034,7 @@ function App({ user, setUser }: AppProps) {
       case 'flying':
         return (
           <div className="text-center">
-            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-white leading-none">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-mono font-bold text-white leading-none tracking-wider">
               {currentMultiplier.toFixed(2)}x
             </div>
           </div>
@@ -1043,7 +1043,7 @@ function App({ user, setUser }: AppProps) {
         console.log(`🎯 CRASH UI: crashPoint = ${crashPoint}, showing ${(crashPoint ?? 0).toFixed(2)}x`);
         return (
           <div className="text-center">
-            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-600 leading-none">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-mono font-bold text-red-600 leading-none tracking-wider">
               {(crashPoint ?? 0).toFixed(2)}x
             </div>
             {showCrashUI && (
@@ -1056,7 +1056,7 @@ function App({ user, setUser }: AppProps) {
       case 'wait':
         return (
           <div className="text-center">
-            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-600 leading-none">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-mono font-bold text-red-600 leading-none tracking-wider">
               {(crashPoint ?? 0).toFixed(2)}x
             </div>
             {showCrashUI && (
