@@ -14,7 +14,7 @@ type GamePhase = 'betting' | 'flying' | 'crashed' | 'wait';
 
 // Socket.IO event interfaces
 interface GameStateData {
-  phase: GamePhase;
+  gamePhase: GamePhase;
   currentRound: number;
   currentMultiplier: number;
   crashPoint: number | null;
@@ -1133,11 +1133,11 @@ function App({ user, setUser }: AppProps) {
 
       // Game state events
       newSocket.on('game:state', (data: GameStateData) => {
-        console.log(`📊 Received game state: round ${data.currentRound}, phase ${data.phase}, current frontend round ${currentRoundRef.current}`);
+        console.log(`📊 Received game state: round ${data.currentRound}, phase ${data.gamePhase}, current frontend round ${currentRoundRef.current}`);
         
         // Validate the data before updating state
         if (data.currentRound && data.currentRound > 0) {
-          setGamePhase(data.phase);
+          setGamePhase(data.gamePhase);
           setCurrentRound(data.currentRound);
           // Update ref immediately to prevent race conditions
           currentRoundRef.current = data.currentRound;
