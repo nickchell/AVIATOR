@@ -1078,116 +1078,199 @@ function App({ user, setUser }: AppProps) {
 
   // Initialize Socket.IO connection on mount
   useEffect(() => {
-    const newSocket = io(SOCKET_SERVER_URL);
-
-    // Connection events
-    newSocket.on('connect', () => {
-      console.log('🔌 Connected to Socket.IO server');
-      setIsConnected(true);
-    });
-
-    newSocket.on('disconnect', () => {
-      console.log('🔌 Disconnected from Socket.IO server');
-      setIsConnected(false);
-    });
-
-    // Game state events
-    newSocket.on('game:state', (data: GameStateData) => {
-      console.log(`📊 Received game state: round ${data.currentRound}, phase ${data.phase}, current frontend round ${currentRound}`);
-      setGamePhase(data.phase);
-      setCurrentRound(data.currentRound);
-      // Update ref immediately to prevent race conditions
-      currentRoundRef.current = data.currentRound;
-      setCurrentMultiplier(data.currentMultiplier);
-      setCrashPoint(data.crashPoint);
-    });
-
-    newSocket.on('round:info', (data: any) => {
-      console.log(`📋 Round info: ${data.round}, phase ${data.phase}, multiplier ${data.multiplier}`);
-      setCurrentRound(data.round);
-      // Update ref immediately to prevent race conditions
-      currentRoundRef.current = data.round;
-      setGamePhase(data.phase);
-      setCurrentMultiplier(data.multiplier);
-      setCrashPoint(data.crashPoint);
-    });
-
-    newSocket.on('round:flying', (data: any) => {
-      console.log(`✈️ Joining flying round: ${data.round}, multiplier ${data.multiplier}`);
-      setCurrentRound(data.round);
-      // Update ref immediately to prevent race conditions
-      currentRoundRef.current = data.round;
-      setGamePhase('flying');
-      setCurrentMultiplier(data.multiplier);
-      setCrashPoint(data.crashPoint);
-      setCountdown(0);
-    });
-
-    newSocket.on('round:start', (data: RoundStartData) => {
-      console.log(`🎮 Round started: ${data.round}, current frontend round ${currentRoundRef.current}`);
-      console.log(`🎯 Setting currentRound from ${currentRoundRef.current} to ${data.round}`);
-      setCurrentRound(data.round);
-      // Update ref immediately to prevent race conditions
-      currentRoundRef.current = data.round;
-      setCrashPoint(data.crashPoint);
-      setGamePhase('betting');
-      setCountdown(BETTING_PHASE_DURATION);
-      // Don't reset multiplier here - keep the crash value visible
-      setManualBet(null);
-      setAutoBet(null);
-      setManualBet2(null);
-      setAutoBet2(null);
-      // Reset database IDs for new round
-      setManualBetDbId(null);
-      setAutoBetDbId(null);
-      setManualBetDbId2(null);
-      setAutoBetDbId2(null);
-    });
-
-    newSocket.on('multiplier:update', (data: MultiplierUpdateData) => {
-      // Debug: Log any suspicious multiplier values
-      if (data.multiplier === 0 || data.multiplier < 0.1) {
-        console.log(`🚨 SUSPICIOUS MULTIPLIER: round ${data.round}, multiplier ${data.multiplier}`);
-      }
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const reconnectDelay = 1000; // Start with 1 second
+    
+    const connectSocket = () => {
+      console.log(`🔌 Attempting to connect to Socket.IO server (attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`);
       
-      // Only log significant changes or every 20th update to reduce console spam
-      const shouldLog = (data.multiplier >= 2.0 && data.multiplier % 0.5 < 0.02) || 
-                       (data.multiplier >= 5.0) || 
-                       (data.multiplier >= 10.0) ||
-                       (Math.random() < 0.05); // 5% chance to log any update
-      
-      if (shouldLog) {
-        console.log(`📈 Multiplier update: round ${data.round}, multiplier ${data.multiplier.toFixed(2)}, current frontend round ${currentRoundRef.current}`);
-      }
-      
-      // Accept multiplier updates for current round or if we're in flying phase
-      if (data.round === currentRoundRef.current || gamePhase === 'flying') {
-        setCurrentMultiplier(data.multiplier);
-      } else {
-        console.log(`⚠️ Round mismatch: received ${data.round}, expected ${currentRoundRef.current}, but accepting anyway to prevent desync`);
-        setCurrentMultiplier(data.multiplier);
-      }
-    });
+      const newSocket = io(SOCKET_SERVER_URL, {
+        transports: ['websocket', 'polling'],
+        timeout: 20000,
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: maxReconnectAttempts,
+        reconnectionDelay: reconnectDelay,
+        reconnectionDelayMax: 5000
+      });
 
-    newSocket.on('round:crash', (data: RoundCrashData) => {
-      // Accept crash events for current round or if we're in flying phase
-      if (data.round === currentRoundRef.current || gamePhase === 'flying') {
-        console.log(`💥 CRASH: Setting crash point to ${data.crashPoint}x`);
-        setGamePhase('crashed');
-        setCurrentMultiplier(data.crashPoint);
-        setCrashPoint(data.crashPoint);
-        setShowCrashUI(true);
-      } else {
-        console.log(`⚠️ Crash round mismatch: received ${data.round}, expected ${currentRoundRef.current}, but accepting anyway to prevent desync`);
-        setGamePhase('crashed');
-        setCurrentMultiplier(data.crashPoint);
-        setCrashPoint(data.crashPoint);
-        setShowCrashUI(true);
-      }
-    });
+      // Connection events
+      newSocket.on('connect', () => {
+        console.log('🔌 Connected to Socket.IO server');
+        setIsConnected(true);
+        reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+      });
+
+      newSocket.on('disconnect', (reason) => {
+        console.log(`🔌 Disconnected from Socket.IO server: ${reason}`);
+        setIsConnected(false);
+        
+        // Handle reconnection for unexpected disconnections
+        if (reason === 'io server disconnect' || reason === 'io client disconnect') {
+          console.log('🔄 Server initiated disconnect, attempting to reconnect...');
+          setTimeout(() => {
+            if (reconnectAttempts < maxReconnectAttempts) {
+              reconnectAttempts++;
+              connectSocket();
+            }
+          }, reconnectDelay);
+        }
+      });
+
+      newSocket.on('connect_error', (error) => {
+        console.error('❌ Socket connection error:', error.message);
+        setIsConnected(false);
+        
+        // Retry connection on error
+        setTimeout(() => {
+          if (reconnectAttempts < maxReconnectAttempts) {
+            reconnectAttempts++;
+            connectSocket();
+          }
+        }, reconnectDelay * (reconnectAttempts + 1));
+      });
+
+      // Game state events
+      newSocket.on('game:state', (data: GameStateData) => {
+        console.log(`📊 Received game state: round ${data.currentRound}, phase ${data.phase}, current frontend round ${currentRoundRef.current}`);
+        
+        // Validate the data before updating state
+        if (data.currentRound && data.currentRound > 0) {
+          setGamePhase(data.phase);
+          setCurrentRound(data.currentRound);
+          // Update ref immediately to prevent race conditions
+          currentRoundRef.current = data.currentRound;
+          setCurrentMultiplier(data.currentMultiplier || 1.00);
+          setCrashPoint(data.crashPoint);
+        } else {
+          console.warn('⚠️ Invalid game state received:', data);
+        }
+      });
+
+      newSocket.on('round:info', (data: any) => {
+        console.log(`📋 Round info: ${data.round}, phase ${data.phase}, multiplier ${data.multiplier}`);
+        
+        // Validate the data before updating state
+        if (data.round && data.round > 0) {
+          setCurrentRound(data.round);
+          // Update ref immediately to prevent race conditions
+          currentRoundRef.current = data.round;
+          setGamePhase(data.phase);
+          setCurrentMultiplier(data.multiplier || 1.00);
+          setCrashPoint(data.crashPoint);
+        } else {
+          console.warn('⚠️ Invalid round info received:', data);
+        }
+      });
+
+      newSocket.on('round:flying', (data: any) => {
+        console.log(`✈️ Joining flying round: ${data.round}, multiplier ${data.multiplier}`);
+        
+        // Validate the data before updating state
+        if (data.round && data.round > 0) {
+          setCurrentRound(data.round);
+          // Update ref immediately to prevent race conditions
+          currentRoundRef.current = data.round;
+          setGamePhase('flying');
+          setCurrentMultiplier(data.multiplier || 1.00);
+          setCrashPoint(data.crashPoint);
+          setCountdown(0);
+        } else {
+          console.warn('⚠️ Invalid flying round data received:', data);
+        }
+      });
+
+      newSocket.on('round:start', (data: RoundStartData) => {
+        console.log(`🎮 Round started: ${data.round}, current frontend round ${currentRoundRef.current}`);
+        
+        // Validate the data before updating state
+        if (data.round && data.round > 0) {
+          console.log(`🎯 Setting currentRound from ${currentRoundRef.current} to ${data.round}`);
+          setCurrentRound(data.round);
+          // Update ref immediately to prevent race conditions
+          currentRoundRef.current = data.round;
+          setCrashPoint(data.crashPoint);
+          setGamePhase('betting');
+          setCountdown(BETTING_PHASE_DURATION);
+          // Don't reset multiplier here - keep the crash value visible
+          setManualBet(null);
+          setAutoBet(null);
+          setManualBet2(null);
+          setAutoBet2(null);
+          // Reset database IDs for new round
+          setManualBetDbId(null);
+          setAutoBetDbId(null);
+          setManualBetDbId2(null);
+          setAutoBetDbId2(null);
+        } else {
+          console.warn('⚠️ Invalid round start data received:', data);
+        }
+      });
+
+      newSocket.on('multiplier:update', (data: MultiplierUpdateData) => {
+        // Debug: Log any suspicious multiplier values
+        if (data.multiplier === 0 || data.multiplier < 0.1) {
+          console.log(`🚨 SUSPICIOUS MULTIPLIER: round ${data.round}, multiplier ${data.multiplier}`);
+        }
+        
+        // Only log significant changes or every 20th update to reduce console spam
+        const shouldLog = (data.multiplier >= 2.0 && data.multiplier % 0.5 < 0.02) || 
+                         (data.multiplier >= 5.0) || 
+                         (data.multiplier >= 10.0) ||
+                         (Math.random() < 0.05); // 5% chance to log any update
+        
+        if (shouldLog) {
+          console.log(`📈 Multiplier update: round ${data.round}, multiplier ${data.multiplier.toFixed(2)}, current frontend round ${currentRoundRef.current}`);
+        }
+        
+        // Validate multiplier data
+        if (data.multiplier && data.multiplier >= 1.00) {
+          // Accept multiplier updates for current round or if we're in flying phase
+          if (data.round === currentRoundRef.current || gamePhase === 'flying') {
+            setCurrentMultiplier(data.multiplier);
+          } else {
+            console.log(`⚠️ Round mismatch: received ${data.round}, expected ${currentRoundRef.current}, but accepting anyway to prevent desync`);
+            setCurrentMultiplier(data.multiplier);
+          }
+        } else {
+          console.warn('⚠️ Invalid multiplier received:', data);
+        }
+      });
+
+      newSocket.on('round:crash', (data: RoundCrashData) => {
+        // Validate crash data
+        if (data.crashPoint && data.crashPoint >= 1.00) {
+          // Accept crash events for current round or if we're in flying phase
+          if (data.round === currentRoundRef.current || gamePhase === 'flying') {
+            console.log(`💥 CRASH: Setting crash point to ${data.crashPoint}x`);
+            setGamePhase('crashed');
+            setCurrentMultiplier(data.crashPoint);
+            setCrashPoint(data.crashPoint);
+            setShowCrashUI(true);
+          } else {
+            console.log(`⚠️ Crash round mismatch: received ${data.round}, expected ${currentRoundRef.current}, but accepting anyway to prevent desync`);
+            setGamePhase('crashed');
+            setCurrentMultiplier(data.crashPoint);
+            setCrashPoint(data.crashPoint);
+            setShowCrashUI(true);
+          }
+        } else {
+          console.warn('⚠️ Invalid crash data received:', data);
+        }
+      });
+
+      // Store socket reference for cleanup
+      return newSocket;
+    };
+
+    const socket = connectSocket();
 
     return () => {
-      newSocket.close();
+      console.log('🧹 Cleaning up socket connection');
+      if (socket) {
+        socket.disconnect();
+      }
     };
   }, []); // Remove currentRound dependency to prevent socket reconnection
 
