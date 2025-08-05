@@ -237,7 +237,7 @@ function AdminPage() {
 
   // Get multiplier color based on value
   const getMultiplierColor = (multiplier: number) => {
-    if (multiplier < 2) return 'text-red-400';
+    if (multiplier < 2) return 'text-red-600'; // More intense red for crashes
     if (multiplier < 5) return 'text-green-400';
     if (multiplier < 10) return 'text-blue-400';
     if (multiplier < 20) return 'text-purple-400';

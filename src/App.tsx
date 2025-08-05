@@ -1043,11 +1043,11 @@ function App({ user, setUser }: AppProps) {
         console.log(`🎯 CRASH UI: crashPoint = ${crashPoint}, showing ${(crashPoint ?? 0).toFixed(2)}x`);
         return (
           <div className="text-center">
-            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-400 leading-none">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-600 leading-none">
               {(crashPoint ?? 0).toFixed(2)}x
             </div>
             {showCrashUI && (
-              <div className="text-red-400 text-lg sm:text-xl md:text-2xl mt-2 sm:mt-4 animate-pulse">
+              <div className="text-red-600 text-lg sm:text-xl md:text-2xl mt-2 sm:mt-4 animate-pulse">
                 FLEW AWAY!
               </div>
             )}
@@ -1056,11 +1056,11 @@ function App({ user, setUser }: AppProps) {
       case 'wait':
         return (
           <div className="text-center">
-            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-400 leading-none">
+            <div className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold text-red-600 leading-none">
               {(crashPoint ?? 0).toFixed(2)}x
             </div>
             {showCrashUI && (
-              <div className="text-red-400 text-lg sm:text-xl md:text-2xl mt-2 sm:mt-4 animate-pulse">
+              <div className="text-red-600 text-lg sm:text-xl md:text-2xl mt-2 sm:mt-4 animate-pulse">
                 FLEW AWAY!
               </div>
             )}
