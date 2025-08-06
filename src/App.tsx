@@ -2073,13 +2073,7 @@ function App({ user, setUser }: AppProps) {
             draggable="false"
           />
           
-          {/* 2nd Logo */}
-          <img
-            src="/mainlogo.png"
-            alt="Main Logo"
-            className="w-16 h-6 sm:w-40 sm:h-16 max-w-[80px] sm:max-w-[180px] object-contain flex-shrink-0"
-            draggable="false"
-          />
+
           
           {/* Spacer to push remaining elements to the right */}
           <div className="flex-1"></div>
@@ -2185,8 +2179,18 @@ function App({ user, setUser }: AppProps) {
           <div className="xl:col-span-6 order-1 xl:order-2">
             <Card className="h-full bg-gradient-to-br from-zinc-900 to-zinc-950 border-zinc-800 overflow-hidden">
               <CardContent className="p-2 sm:p-6 h-full flex flex-col">
-                {/* Audio Toggle Button above xTournament */}
-                <div className="flex justify-end mb-2">
+                {/* Audio Toggle Button and Logo above xTournament */}
+                <div className="flex justify-between items-center mb-2">
+                  {/* Logo on the left */}
+                  <div className="flex items-center">
+                    <img
+                      src="/mainlogo.png"
+                      alt="Logo"
+                      className="w-12 h-6 sm:w-16 sm:h-8 object-contain opacity-100 brightness-150"
+                      draggable="false"
+                    />
+                  </div>
+                  {/* Music toggle on the right */}
                   <button
                     onClick={() => setAudioEnabled((prev) => !prev)}
                     className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors duration-200 ${audioEnabled ? 'bg-green-600 border-green-700 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}
