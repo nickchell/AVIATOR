@@ -2186,7 +2186,7 @@ function App({ user, setUser }: AppProps) {
                     <img
                       src="/mainlogo.png"
                       alt="Logo"
-                      className="w-12 h-6 sm:w-16 sm:h-8 object-contain opacity-100 brightness-150"
+                      className="w-16 h-8 sm:w-20 sm:h-10 object-contain opacity-100 brightness-150"
                       draggable="false"
                     />
                   </div>
@@ -2233,7 +2233,7 @@ function App({ user, setUser }: AppProps) {
                   </ScrollArea>
                 </div>
                 {/* Main Game Area */}
-                <div className="flex-1 flex items-center justify-center relative min-h-[180px]">
+                <div className="flex-1 flex items-start justify-center relative min-h-[180px] pt-8">
                   <div className="absolute inset-0 opacity-10">
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-zinc-700 to-transparent transform -skew-y-12 animate-pulse"></div>
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-zinc-600 to-transparent transform -skew-y-12 animate-pulse delay-1000"></div>
