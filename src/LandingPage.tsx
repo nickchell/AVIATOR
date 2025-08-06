@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient';
-import Confetti from 'react-confetti-boom';
 
 type LandingPageProps = {
   onPlayNow: (user: any) => void;
@@ -15,8 +14,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
-  const [showWelcome, setShowWelcome] = useState(false);
-  const [pendingUser, setPendingUser] = useState<any>(null);
 
   const handlePlayNowClick = () => {
     setShowModal(true);
@@ -97,7 +94,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
       }
       const { data: newUser, error: insertError } = await supabase
         .from('users')
-        .insert([{ phone, pin, balance: 50 }])
+        .insert([{ phone, pin, balance: 0 }])
         .select()
         .single();
       if (insertError) {
@@ -105,9 +102,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
         setError('Failed to register. Please try again.');
         return;
       }
-      setShowWelcome(true);
-      setPendingUser(newUser);
+      setLoading(false);
       setShowModal(false);
+      onPlayNow(newUser);
     }
   };
 
@@ -234,31 +231,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
         </div>
       )}
 
-      {/* Welcome Confetti and Message */}
-      {showWelcome && (
-        <>
-          <Confetti mode="boom" />
-          <div className="fixed inset-0 z-[100] flex items-center justify-center">
-            <div className="relative z-10 bg-black/80 border border-yellow-400 rounded-2xl px-6 py-8 shadow-xl flex flex-col items-center">
-              <div className="text-3xl mb-2">🎉</div>
-              <div className="text-lg font-bold text-yellow-400 text-center mb-1">Karibu Hero</div>
-              <div className="text-base text-white text-center mb-4">
-                You have been awarded <span className="text-green-400 font-bold">Ksh. 50</span> to start off for free,<br />
-                keep it <span className="text-yellow-400 font-bold">bet</span><span className="text-white font-bold">hero</span>!
-              </div>
-              <button
-                className="mt-2 bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 px-6 rounded-full text-lg shadow transition"
-                onClick={() => {
-                  setShowWelcome(false);
-                  if (pendingUser) onPlayNow(pendingUser);
-                }}
-              >
-                Receive Reward
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+
 
       {/* Footer */}
       <footer className="mt-auto py-6 text-center text-xs text-zinc-400 border-t border-green-800 bg-black/60">
