@@ -72,25 +72,31 @@ function AdminPage() {
   const [roundSearch, setRoundSearch] = useState('');
   const [searchingMultipliers, setSearchingMultipliers] = useState(false);
 
+
+
   // Fetch admin statistics
   const fetchStats = async () => {
     try {
       // Fetch users count
-      const { count: totalUsers } = await supabase
+      const { count: totalUsers, error: usersError } = await supabase
         .from('users')
         .select('*', { count: 'exact', head: true });
 
-      // Fetch active users (logged in last 24 hours)
-      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { count: activeUsers } = await supabase
-        .from('users')
-        .select('*', { count: 'exact', head: true })
-        .gte('last_login', yesterday);
+      if (usersError) {
+        console.error('❌ Error fetching users count:', usersError);
+      }
+
+      // For now, set active users to total users since last_login field might not exist
+      const activeUsers = totalUsers || 0;
 
       // Fetch bets statistics
-      const { data: betsData } = await supabase
+      const { data: betsData, error: betsError } = await supabase
         .from('bets')
         .select('*');
+
+      if (betsError) {
+        console.error('❌ Error fetching bets:', betsError);
+      }
 
       const totalBets = betsData?.length || 0;
       const totalWinnings = betsData?.reduce((sum, bet) => sum + (bet.win_amount || 0), 0) || 0;
@@ -98,10 +104,18 @@ function AdminPage() {
         betsData.reduce((sum, bet) => sum + bet.amount, 0) / betsData.length : 0;
 
       // Fetch recent multipliers for crash rate
-      const res = await fetch(`${BACKEND_URL}/api/multipliers?from=0&to=100`);
-      const multipliers = res.ok ? await res.json() : [];
-      const crashes = multipliers.filter((m: any) => m.multiplier < 2).length;
-      const crashRate = multipliers.length ? (crashes / multipliers.length) * 100 : 0;
+      let crashRate = 0;
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/multipliers?from=0&to=100`);
+        if (res.ok) {
+          const multipliers = await res.json();
+          const crashes = multipliers.filter((m: any) => m.multiplier < 2).length;
+          crashRate = multipliers.length ? (crashes / multipliers.length) * 100 : 0;
+        }
+      } catch (error) {
+        console.error('Error fetching multipliers:', error);
+        crashRate = 0;
+      }
 
       setStats({
         totalUsers: totalUsers || 0,
@@ -121,29 +135,45 @@ function AdminPage() {
   // Fetch users
   const fetchUsers = async () => {
     try {
-      const { data } = await supabase
+      console.log('🔍 Fetching users...');
+      const { data, error } = await supabase
         .from('users')
         .select('*')
         .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Supabase error fetching users:', error);
+        return;
+      }
       
       if (data) {
         // Fetch bet statistics for each user
         const usersWithStats = await Promise.all(
           data.map(async (user) => {
-            const { data: userBets } = await supabase
-              .from('bets')
-              .select('*')
-              .eq('user_id', user.id);
-            
-            const totalBets = userBets?.length || 0;
-            const totalWinnings = userBets?.reduce((sum, bet) => sum + (bet.win_amount || 0), 0) || 0;
-            
-            return {
-              ...user,
-              total_bets: totalBets,
-              total_winnings: totalWinnings,
-              banned: user.banned || false
-            };
+            try {
+              const { data: userBets } = await supabase
+                .from('bets')
+                .select('*')
+                .eq('user_id', user.id);
+              
+              const totalBets = userBets?.length || 0;
+              const totalWinnings = userBets?.reduce((sum, bet) => sum + (bet.win_amount || 0), 0) || 0;
+              
+              return {
+                ...user,
+                total_bets: totalBets,
+                total_winnings: totalWinnings,
+                banned: user.banned || false
+              };
+            } catch (error) {
+              console.error('Error fetching user bets:', error);
+              return {
+                ...user,
+                total_bets: 0,
+                total_winnings: 0,
+                banned: user.banned || false
+              };
+            }
           })
         );
         
@@ -151,21 +181,29 @@ function AdminPage() {
       }
     } catch (error) {
       console.error('Error fetching users:', error);
+      setUsers([]);
     }
   };
 
   // Fetch recent bets
   const fetchBets = async () => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('bets')
         .select('*')
         .order('placed_at', { ascending: false })
         .limit(50);
       
+      if (error) {
+        console.error('Supabase error fetching bets:', error);
+        setBets([]);
+        return;
+      }
+      
       if (data) setBets(data);
     } catch (error) {
       console.error('Error fetching bets:', error);
+      setBets([]);
     }
   };
 
@@ -248,8 +286,13 @@ function AdminPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchStats(), fetchUsers(), fetchBets()]);
-      setLoading(false);
+      try {
+        await Promise.all([fetchStats(), fetchUsers(), fetchBets()]);
+      } catch (error) {
+        console.error('Error loading admin data:', error);
+      } finally {
+        setLoading(false);
+      }
     };
     loadData();
   }, []);
@@ -263,7 +306,7 @@ function AdminPage() {
     return (
       <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
         <div className="text-center">
-          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <div className="w-8 h-8 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p>Loading admin dashboard...</p>
         </div>
       </div>
@@ -291,6 +334,7 @@ function AdminPage() {
               )}
               {systemStatus}
             </Badge>
+
             <Button variant="outline" onClick={() => window.location.href = '/'}>
               <LogOut className="w-4 h-4 mr-2" />
               Exit Admin

@@ -12,4 +12,10 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  server: {
+    port: 5173,
+    host: true,
+    // Handle client-side routing
+    historyApiFallback: true,
+  },
 });

@@ -2,6 +2,7 @@ import { StrictMode, useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import LandingPage from './LandingPage';
+import AdminPage from './AdminPage';
 import { supabase } from './lib/supabaseClient';
 import './index.css';
 
@@ -11,6 +12,9 @@ function Root() {
     return stored ? JSON.parse(stored) : null;
   });
   const [loading, setLoading] = useState(false);
+
+  // Check if we're on the admin page
+  const isAdminPage = window.location.pathname === '/admin';
 
   // On mount, if user in localStorage, fetch latest from Supabase
   useEffect(() => {
@@ -57,6 +61,13 @@ function Root() {
   }, [user]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-white text-xl">Loading...</div>;
+  
+  // Route to admin page if URL is /admin
+  if (isAdminPage) {
+    return <AdminPage />;
+  }
+  
+  // Normal app flow
   if (user) return <App user={user} setUser={setUser} />;
   return <LandingPage onPlayNow={setUser} />;
 }
