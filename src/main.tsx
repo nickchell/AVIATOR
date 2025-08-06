@@ -17,14 +17,29 @@ function Root() {
     const fetchLatestUser = async () => {
       if (user && user.phone) {
         setLoading(true);
-        const { data: freshUser } = await supabase
+        console.log('🔄 Fetching latest user data for:', user.phone);
+        const { data: freshUser, error } = await supabase
           .from('users')
           .select('*')
           .eq('phone', user.phone)
           .single();
+        
+        if (error) {
+          console.error('❌ Error fetching user data:', error);
+          setLoading(false);
+          return;
+        }
+        
         if (freshUser) {
+          console.log('✅ User data loaded:', { 
+            id: freshUser.id, 
+            phone: freshUser.phone, 
+            balance: freshUser.balance 
+          });
           setUser(freshUser);
           localStorage.setItem('aviator_user', JSON.stringify(freshUser));
+        } else {
+          console.warn('⚠️ No user data found for phone:', user.phone);
         }
         setLoading(false);
       }

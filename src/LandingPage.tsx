@@ -52,16 +52,33 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
     setLoading(true);
     if (isRegistered) {
       // Login mode
-      const { data: existingUser } = await supabase
+      console.log('🔐 Attempting login for phone:', phone);
+      const { data: existingUser, error } = await supabase
         .from('users')
         .select('*')
         .eq('phone', phone)
         .single();
+      
+      if (error) {
+        console.error('❌ Error during login:', error);
+        setLoading(false);
+        setError('Login failed. Please try again.');
+        return;
+      }
+      
       if (!existingUser || existingUser.pin !== pin) {
+        console.log('❌ Login failed: Invalid credentials');
         setLoading(false);
         setError('Incorrect PIN.');
         return;
       }
+      
+      console.log('✅ Login successful:', { 
+        id: existingUser.id, 
+        phone: existingUser.phone, 
+        balance: existingUser.balance 
+      });
+      
       setLoading(false);
       setShowModal(false);
       onPlayNow(existingUser);
