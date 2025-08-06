@@ -2405,12 +2405,14 @@ function App({ user, setUser }: AppProps) {
                                   ? () => setAutoPendingBet(manualBetAmount)
                                   : gamePhase === 'flying'
                                   ? () => {
-                                      setShowWaitingMessage1(true);
-                                      setAutoQueuedBet([manualBetAmount]);
-                                      const currentBalance = currentBalanceRef.current || user.balance;
-                                      updateBalance(currentBalance - manualBetAmount);
-                                      queuedBetRoundRef.current = currentRound;
-                                      console.log(`🔍 Auto queued bet set after cashout: ${manualBetAmount} KES in round ${currentRound}`);
+                                      if (!showWaitingMessage1 && autoQueuedBet.length === 0) {
+                                        setShowWaitingMessage1(true);
+                                        setAutoQueuedBet([manualBetAmount]);
+                                        const currentBalance = currentBalanceRef.current || user.balance;
+                                        updateBalance(currentBalance - manualBetAmount);
+                                        queuedBetRoundRef.current = currentRound;
+                                        console.log(`🔍 Auto queued bet set after cashout: ${manualBetAmount} KES in round ${currentRound}`);
+                                      }
                                     }
                                   : undefined
                               }
@@ -2452,11 +2454,13 @@ function App({ user, setUser }: AppProps) {
                                 ? () => setAutoPendingBet(manualBetAmount)
                                 : gamePhase === 'flying'
                                 ? () => {
-                                    setShowWaitingMessage1(true);
-                                    setAutoQueuedBet([manualBetAmount]);
-                                    const currentBalance = currentBalanceRef.current || user.balance;
-                                    updateBalance(currentBalance - manualBetAmount);
-                                    queuedBetRoundRef.current = currentRound;
+                                    if (!showWaitingMessage1 && autoQueuedBet.length === 0) {
+                                      setShowWaitingMessage1(true);
+                                      setAutoQueuedBet([manualBetAmount]);
+                                      const currentBalance = currentBalanceRef.current || user.balance;
+                                      updateBalance(currentBalance - manualBetAmount);
+                                      queuedBetRoundRef.current = currentRound;
+                                    }
                                   }
                                 : undefined
                             }
@@ -2523,12 +2527,14 @@ function App({ user, setUser }: AppProps) {
                                   ? () => setManualPendingBet(manualBetAmount)
                                   : gamePhase === 'flying'
                                   ? () => {
-                                      setShowWaitingMessage2(true);
-                                      setManualQueuedBet([manualBetAmount]);
-                                      const currentBalance = currentBalanceRef.current || user.balance;
-                                      updateBalance(currentBalance - manualBetAmount);
-                                      queuedBetRoundRef.current = currentRound;
-                                      console.log(`🔍 Queued bet set after cashout: ${manualBetAmount} KES in round ${currentRound}`);
+                                      if (!showWaitingMessage2 && manualQueuedBet.length === 0) {
+                                        setShowWaitingMessage2(true);
+                                        setManualQueuedBet([manualBetAmount]);
+                                        const currentBalance = currentBalanceRef.current || user.balance;
+                                        updateBalance(currentBalance - manualBetAmount);
+                                        queuedBetRoundRef.current = currentRound;
+                                        console.log(`🔍 Queued bet set after cashout: ${manualBetAmount} KES in round ${currentRound}`);
+                                      }
                                     }
                                   : undefined
                               }
@@ -2568,11 +2574,13 @@ function App({ user, setUser }: AppProps) {
                                 ? () => setManualPendingBet(manualBetAmount)
                                 : gamePhase === 'flying'
                                 ? () => {
-                                    setShowWaitingMessage2(true);
-                                    setManualQueuedBet([manualBetAmount]);
-                                    const currentBalance = currentBalanceRef.current || user.balance;
-                                    updateBalance(currentBalance - manualBetAmount);
-                                    queuedBetRoundRef.current = currentRound;
+                                    if (!showWaitingMessage2 && manualQueuedBet.length === 0) {
+                                      setShowWaitingMessage2(true);
+                                      setManualQueuedBet([manualBetAmount]);
+                                      const currentBalance = currentBalanceRef.current || user.balance;
+                                      updateBalance(currentBalance - manualBetAmount);
+                                      queuedBetRoundRef.current = currentRound;
+                                    }
                                   }
                                 : undefined
                             }
@@ -2757,12 +2765,14 @@ function App({ user, setUser }: AppProps) {
                                   ? () => setAutoPendingBet2(manualBetAmount2)
                                   : gamePhase === 'flying'
                                   ? () => {
-                                                                        setShowWaitingMessage3(true);
-                                  setAutoQueuedBet2([manualBetAmount2]);
-                                  const currentBalance = currentBalanceRef.current || user.balance;
-                                  updateBalance(currentBalance - manualBetAmount2);
-                                  queuedBetRound2Ref.current = currentRound;
-                                      console.log(`🔍 Auto queued bet 2 set after cashout: ${manualBetAmount2} KES in round ${currentRound}`);
+                                      if (!showWaitingMessage3 && autoQueuedBet2.length === 0) {
+                                        setShowWaitingMessage3(true);
+                                        setAutoQueuedBet2([manualBetAmount2]);
+                                        const currentBalance = currentBalanceRef.current || user.balance;
+                                        updateBalance(currentBalance - manualBetAmount2);
+                                        queuedBetRound2Ref.current = currentRound;
+                                        console.log(`🔍 Auto queued bet 2 set after cashout: ${manualBetAmount2} KES in round ${currentRound}`);
+                                      }
                                     }
                                   : undefined
                               }
@@ -2807,11 +2817,13 @@ function App({ user, setUser }: AppProps) {
                                   }
                                 : gamePhase === 'flying'
                                 ? () => {
-                                    setShowWaitingMessage3(true);
-                                    setAutoQueuedBet2([manualBetAmount2]);
-                                    const currentBalance = currentBalanceRef.current || user.balance;
-                                    updateBalance(currentBalance - manualBetAmount2);
-                                    queuedBetRound2Ref.current = currentRound;
+                                    if (!showWaitingMessage3 && autoQueuedBet2.length === 0) {
+                                      setShowWaitingMessage3(true);
+                                      setAutoQueuedBet2([manualBetAmount2]);
+                                      const currentBalance = currentBalanceRef.current || user.balance;
+                                      updateBalance(currentBalance - manualBetAmount2);
+                                      queuedBetRound2Ref.current = currentRound;
+                                    }
                                   }
                                 : undefined
                             }
@@ -2878,12 +2890,14 @@ function App({ user, setUser }: AppProps) {
                                   ? () => setManualPendingBet2(manualBetAmount2)
                                   : gamePhase === 'flying'
                                   ? () => {
-                                                                        setShowWaitingMessage4(true);
-                                  setManualQueuedBet2([manualBetAmount2]);
-                                  const currentBalance = currentBalanceRef.current || user.balance;
-                                  updateBalance(currentBalance - manualBetAmount2);
-                                  queuedBetRound2Ref.current = currentRound;
-                                      console.log(`🔍 Queued bet 2 set after cashout: ${manualBetAmount2} KES in round ${currentRound}`);
+                                      if (!showWaitingMessage4 && manualQueuedBet2.length === 0) {
+                                        setShowWaitingMessage4(true);
+                                        setManualQueuedBet2([manualBetAmount2]);
+                                        const currentBalance = currentBalanceRef.current || user.balance;
+                                        updateBalance(currentBalance - manualBetAmount2);
+                                        queuedBetRound2Ref.current = currentRound;
+                                        console.log(`🔍 Queued bet 2 set after cashout: ${manualBetAmount2} KES in round ${currentRound}`);
+                                      }
                                     }
                                   : undefined
                               }
@@ -2926,12 +2940,14 @@ function App({ user, setUser }: AppProps) {
                                   }
                                 : gamePhase === 'flying'
                                 ? () => {
-                                    setShowWaitingMessage4(true);
-                                    setManualQueuedBet2([manualBetAmount2]);
-                                    const currentBalance = currentBalanceRef.current || user.balance;
-                                    updateBalance(currentBalance - manualBetAmount2);
-                                    queuedBetRound2Ref.current = currentRound;
-                                    console.log(`🔍 Queued bet 2 set: ${manualBetAmount2} KES in round ${currentRound}`);
+                                    if (!showWaitingMessage4 && manualQueuedBet2.length === 0) {
+                                      setShowWaitingMessage4(true);
+                                      setManualQueuedBet2([manualBetAmount2]);
+                                      const currentBalance = currentBalanceRef.current || user.balance;
+                                      updateBalance(currentBalance - manualBetAmount2);
+                                      queuedBetRound2Ref.current = currentRound;
+                                      console.log(`🔍 Queued bet 2 set: ${manualBetAmount2} KES in round ${currentRound}`);
+                                    }
                                   }
                                 : undefined
                             }
