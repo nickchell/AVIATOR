@@ -107,6 +107,31 @@ function AdminPage() {
   const [botSearchTerm, setBotSearchTerm] = useState('');
   const [filteredPredictions, setFilteredPredictions] = useState<Prediction[]>([]);
 
+  // Get current user from localStorage
+  const getCurrentUser = () => {
+    try {
+      const stored = localStorage.getItem('aviator_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error reading user from localStorage:', error);
+      return null;
+    }
+  };
+
+  // Get welcome message based on phone number
+  const getWelcomeMessage = (phone: string) => {
+    switch (phone) {
+      case '0795997375':
+        return 'Welcome Nico!';
+      case '0794314495':
+        return 'Welcome Adrian!';
+      case '0796459744':
+        return 'Welcome Jeff!';
+      default:
+        return 'Welcome Admin!';
+    }
+  };
+
 
 
   // Fetch admin statistics
@@ -417,9 +442,13 @@ function AdminPage() {
   );
 
   if (loading) {
+    const currentUser = getCurrentUser();
+    const welcomeMessage = currentUser ? getWelcomeMessage(currentUser.phone) : 'Welcome Admin!';
+    
     return (
       <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
         <div className="text-center">
+          <h1 className="text-2xl font-bold text-yellow-400 mb-6">{welcomeMessage}</h1>
           <div className="w-8 h-8 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p>Loading admin dashboard...</p>
         </div>
