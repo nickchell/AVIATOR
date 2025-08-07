@@ -319,3 +319,28 @@ body {
     transform: scale(1.2);
   }
 }
+
+/* Provably fair search styles */
+.provably-fair-search {
+  transition: all 0.3s ease-in-out;
+}
+
+.provably-fair-search:focus-within {
+  transform: scale(1.01);
+  box-shadow: 0 0 10px rgba(113, 113, 122, 0.3);
+}
+
+.search-result {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

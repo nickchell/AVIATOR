@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Timer } from 'lucide-react';
+import { Plus, Timer, Search } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { io } from 'socket.io-client';
 
@@ -2011,6 +2011,11 @@ function App({ user, setUser }: AppProps) {
   const [betHistory, setBetHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Add state for provably fair search
+  const [searchRound, setSearchRound] = useState('');
+  const [searchResult, setSearchResult] = useState<any>(null);
+  const [searching, setSearching] = useState(false);
+
   // Fetch bet history when modal opens
   useEffect(() => {
     if (showBetHistory) {
@@ -2026,6 +2031,96 @@ function App({ user, setUser }: AppProps) {
         });
     }
   }, [showBetHistory, user.id]);
+
+  // Search for previous round
+  const searchPreviousRound = async () => {
+    if (!searchRound.trim()) return;
+    
+    const roundNumber = parseInt(searchRound);
+    const currentRoundNumber = currentRound || 0;
+    
+    // Only allow searching for past rounds
+    if (roundNumber >= currentRoundNumber) {
+      setSearchResult({
+        round: roundNumber,
+        multiplier: null,
+        found: false,
+        error: false,
+        message: roundNumber === currentRoundNumber ? 'Current round is not available for search' : 'Cannot search future rounds'
+      });
+      return;
+    }
+    
+    setSearching(true);
+    try {
+      // Query the database for the specific round from multipliers table
+      const { data, error } = await supabase
+        .from('multipliers')
+        .select('round_number, multiplier')
+        .eq('round_number', roundNumber)
+        .single();
+      
+      if (error) {
+        console.error('Error searching for round:', error);
+        setSearchResult({
+          round: roundNumber,
+          multiplier: null,
+          found: false,
+          error: true,
+          message: 'Database error occurred'
+        });
+      } else if (data) {
+        setSearchResult({
+          round: data.round_number,
+          multiplier: data.multiplier,
+          found: true,
+          error: false
+        });
+      } else {
+        setSearchResult({
+          round: roundNumber,
+          multiplier: null,
+          found: false,
+          error: false,
+          message: 'Round not found in database'
+        });
+      }
+    } catch (error) {
+      console.error('Error searching for round:', error);
+      setSearchResult({
+        round: roundNumber,
+        multiplier: null,
+        found: false,
+        error: true,
+        message: 'Network error occurred'
+      });
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // Handle search input change
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchRound(e.target.value);
+    if (e.target.value.trim() === '') {
+      setSearchResult(null);
+    }
+  };
+
+  // Get display value for input
+  const getDisplayValue = () => {
+    if (searchResult && searchResult.found) {
+      return `Round ${searchResult.round} → ${searchResult.multiplier.toFixed(2)}x`;
+    }
+    return searchRound;
+  };
+
+  // Handle search on Enter key
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      searchPreviousRound();
+    }
+  };
 
   // Initialize currentBalanceRef when user data is loaded
   useEffect(() => {
@@ -2257,6 +2352,37 @@ function App({ user, setUser }: AppProps) {
                   <div className="z-10">
                     {getPhaseDisplay()}
                   </div>
+                </div>
+
+                {/* Provably Fair Search */}
+                <div className="mt-4 flex flex-col items-center">
+                  <div className="text-xs sm:text-sm text-zinc-600 mb-2">Search past rounds only</div>
+                  <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg provably-fair-search">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                    <input
+                      type={searchResult && searchResult.found ? "text" : "number"}
+                      placeholder="Provably Fair"
+                      value={getDisplayValue()}
+                      onChange={handleSearchChange}
+                      onKeyPress={handleSearchKeyPress}
+                      readOnly={searchResult && searchResult.found}
+                      className="w-full pl-10 pr-20 py-2 sm:py-3 bg-zinc-900/70 border border-zinc-600 rounded-2xl text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500 text-sm sm:text-base"
+                    />
+                    <button
+                      onClick={searchResult && searchResult.found ? () => { setSearchResult(null); setSearchRound(''); } : searchPreviousRound}
+                      disabled={searching || (!searchRound.trim() && !searchResult)}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 text-zinc-300 font-medium rounded-full px-3 py-1 text-xs sm:text-sm transition-colors"
+                    >
+                      {searching ? '...' : searchResult && searchResult.found ? 'Clear' : 'Search'}
+                    </button>
+                  </div>
+                  
+                  {/* Error Message */}
+                  {searchResult && !searchResult.found && (
+                    <div className="mt-2 text-xs sm:text-sm text-red-500 text-center px-2">
+                      {searchResult.message || 'Round not found'}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
