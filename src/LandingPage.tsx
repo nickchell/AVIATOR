@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient';
+import Footer from '@/components/Footer';
 
 type LandingPageProps = {
   onPlayNow: (user: any) => void;
@@ -234,9 +235,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
 
 
       {/* Footer */}
-      <footer className="mt-auto py-6 text-center text-xs text-zinc-400 border-t border-green-800 bg-black/60">
-        © 2025 — BetHero ltd | Licensed by BCLB 🇰🇪 | Game Responsibly
-      </footer>
+      <Footer />
     </div>
   );
 };

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from './lib/supabaseClient';
 import { BACKEND_URL } from './lib/utils';
+import Footer from '@/components/Footer';
 import { 
   Users, 
   DollarSign, 
@@ -87,7 +88,6 @@ interface Prediction {
   round_number: number;
   predicted_multiplier: number;
   confidence: number;
-  pattern_type: string;
   reasoning: string;
 }
 
@@ -359,7 +359,7 @@ function AdminPage() {
           round_number: mult.round_number,
           predicted_multiplier: mult.multiplier,
           confidence: 100, // Since these are actual future rounds from DB
-          pattern_type: 'Database Query',
+  
           reasoning: `Round ${mult.round_number} - Pre-generated multiplier from database queue`
         }));
         
@@ -405,8 +405,7 @@ function AdminPage() {
     } else {
       const filtered = predictions.filter(prediction => 
         prediction.round_number.toString().includes(botSearchTerm) ||
-        prediction.predicted_multiplier.toString().includes(botSearchTerm) ||
-        prediction.pattern_type.toLowerCase().includes(botSearchTerm.toLowerCase())
+        prediction.predicted_multiplier.toString().includes(botSearchTerm)
       );
       setFilteredPredictions(filtered);
     }
@@ -429,14 +428,14 @@ function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
       {/* Header */}
       <div className="border-b border-zinc-800 p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Shield className="w-8 h-8 text-yellow-400" />
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold">Aviator Admin Dashboard</h1>
+              <h1 className="text-xl sm:text-2xl font-bold">BetHero - Aviator Admin</h1>
               <p className="text-sm sm:text-base text-zinc-400">Game Management & Analytics</p>
             </div>
           </div>
@@ -459,7 +458,7 @@ function AdminPage() {
         </div>
       </div>
 
-      <div className="p-4 sm:p-6">
+      <div className="flex-1 p-4 sm:p-6">
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="grid w-full grid-cols-5 h-auto sm:h-10 text-xs sm:text-sm">
             <TabsTrigger value="overview" className="py-2 sm:py-0">Overview</TabsTrigger>
@@ -1040,7 +1039,7 @@ function AdminPage() {
               <div className="relative flex-1 max-w-md w-full">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-zinc-400" />
                 <Input
-                  placeholder="Search predictions by round, multiplier, or pattern..."
+                  placeholder="Search predictions by round or multiplier..."
                   value={botSearchTerm}
                   onChange={(e) => setBotSearchTerm(e.target.value)}
                   className="pl-10 bg-zinc-800/50 border-zinc-700 text-zinc-200 placeholder:text-zinc-500"
@@ -1082,17 +1081,16 @@ function AdminPage() {
                 {filteredPredictions.length > 0 ? (
                   <div className="space-y-3">
                     {/* Desktop Table Header */}
-                    <div className="hidden md:grid grid-cols-5 gap-4 text-sm text-purple-300 border-b border-purple-700/50 pb-3 font-semibold">
+                    <div className="hidden md:grid grid-cols-4 gap-4 text-sm text-purple-300 border-b border-purple-700/50 pb-3 font-semibold">
                       <div className="text-center">Round</div>
                       <div className="text-center">Predicted Multiplier</div>
                       <div className="text-center">Confidence</div>
-                      <div className="text-center">Pattern Type</div>
                       <div className="text-center">Status</div>
                     </div>
                     {filteredPredictions.map((prediction) => (
                       <div key={prediction.round_number}>
                         {/* Desktop View */}
-                        <div className={`hidden md:grid grid-cols-5 gap-4 items-center p-4 border rounded-lg hover:bg-purple-800/20 transition-all ${
+                        <div className={`hidden md:grid grid-cols-4 gap-4 items-center p-4 border rounded-lg hover:bg-purple-800/20 transition-all ${
                           prediction.predicted_multiplier < 2 ? 'border-red-500/30 bg-red-900/10' :
                           prediction.predicted_multiplier < 5 ? 'border-green-500/30 bg-green-900/10' :
                           prediction.predicted_multiplier < 10 ? 'border-blue-500/30 bg-blue-900/10' :
@@ -1117,11 +1115,7 @@ function AdminPage() {
                               <span className="text-sm font-semibold text-purple-300">{prediction.confidence}%</span>
                             </div>
                           </div>
-                          <div className="text-center">
-                            <Badge variant="outline" className="text-xs px-2 py-1 border-purple-500/50 text-purple-300">
-                              {prediction.pattern_type}
-                            </Badge>
-                          </div>
+
                           <div className="text-center">
                             {prediction.predicted_multiplier < 2 ? (
                               <div className="flex items-center justify-center gap-1">
@@ -1157,9 +1151,6 @@ function AdminPage() {
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                               <p className="font-bold text-lg text-purple-200">#{prediction.round_number}</p>
-                              <Badge variant="outline" className="text-xs px-2 py-1 border-purple-500/50 text-purple-300">
-                                {prediction.pattern_type}
-                              </Badge>
                             </div>
                             {prediction.predicted_multiplier < 2 ? (
                               <div className="flex items-center gap-1">
@@ -1431,6 +1422,9 @@ function AdminPage() {
           </Card>
         </div>
       )}
+      
+      {/* Footer */}
+      <Footer />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { io } from 'socket.io-client';
 
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
+import Footer from '@/components/Footer';
 
 // Removed BACKEND_URL import as it's no longer needed with Socket.IO
 
@@ -2062,7 +2063,7 @@ function App({ user, setUser }: AppProps) {
           to { width: 0%; }
         }
       `}</style>
-      <div className="min-h-screen bg-zinc-950 text-white relative">
+      <div className="min-h-screen bg-zinc-950 text-white relative flex flex-col">
         {/* Header */}
         <div className="flex items-center p-2 sm:p-4 border-b border-zinc-800 gap-2">
           {/* 1st Logo */}
@@ -2135,7 +2136,7 @@ function App({ user, setUser }: AppProps) {
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-2 sm:gap-4 p-2 sm:p-4 h-auto xl:h-[calc(100vh-80px)]">
+        <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-2 sm:gap-4 p-2 sm:p-4 h-auto xl:h-[calc(100vh-80px)]">
           {/* Left Panel - All Bets */}
           <div className="xl:col-span-3 order-3 xl:order-1">
             <Card className="h-full bg-zinc-900 border-zinc-800">
@@ -3142,6 +3143,9 @@ function App({ user, setUser }: AppProps) {
           </div>
         </div>
       )}
+      
+      {/* Footer */}
+      <Footer />
       <Toaster />
     </>
   );
