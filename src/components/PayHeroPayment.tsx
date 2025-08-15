@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface PayHeroPaymentProps {
   onClose: () => void;
@@ -19,12 +19,28 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
   const [depositedAmount, setDepositedAmount] = useState<number | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  // Load saved name from localStorage on component mount
+  useEffect(() => {
+    const savedName = localStorage.getItem('aviator_customer_name');
+    if (savedName) {
+      setFormData(prev => ({
+        ...prev,
+        customerName: savedName
+      }));
+    }
+  }, []);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
+
+    // Save name to localStorage when user types in the name field
+    if (name === 'customerName' && value.trim()) {
+      localStorage.setItem('aviator_customer_name', value.trim());
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,7 +81,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
 
   const checkPaymentStatus = async (reference: string) => {
     let attempts = 0;
-    const maxAttempts = 13; // 65 seconds / 5 seconds per check
+    const maxAttempts = 10; // 20 seconds / 2 seconds per check
 
     const checkStatus = async () => {
       try {
@@ -109,7 +125,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
         // Continue checking if still QUEUED
         attempts++;
         if (attempts < maxAttempts) {
-          setTimeout(checkStatus, 5000);
+          setTimeout(checkStatus, 2000); // Check every 2 seconds instead of 5
         } else {
           setIsLoading(false);
           setError('Payment timeout. Please check your phone and try again.');
@@ -157,6 +173,11 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
               <label className="text-xs font-medium text-zinc-300 mb-1 flex items-center">
                 <span className="w-1 h-1 bg-green-400 rounded-full mr-1"></span>
                 Name
+                {localStorage.getItem('aviator_customer_name') && (
+                  <span className="ml-2 text-xs text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
+                    Saved
+                  </span>
+                )}
               </label>
               <div className="relative">
                 <input
@@ -169,7 +190,30 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
                   required
                 />
                 <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-500/0 via-green-500/5 to-yellow-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                
+                {/* Clear saved name button */}
+                {localStorage.getItem('aviator_customer_name') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem('aviator_customer_name');
+                      setFormData(prev => ({ ...prev, customerName: '' }));
+                    }}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-zinc-400 hover:text-red-400 transition-colors duration-200 p-1"
+                    title="Clear saved name"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
               </div>
+              {localStorage.getItem('aviator_customer_name') && (
+                <p className="text-xs text-green-400 mt-1 flex items-center">
+                  <span className="w-1 h-1 bg-green-400 rounded-full mr-1"></span>
+                  Your name will be remembered for future deposits
+                </p>
+              )}
             </div>
 
             {/* Phone Number Input */}
