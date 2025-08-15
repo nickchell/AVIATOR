@@ -8,6 +8,7 @@ import { io } from 'socket.io-client';
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
 import Footer from '@/components/Footer';
+import PayHeroPayment from '@/components/PayHeroPayment';
 
 // Removed BACKEND_URL import as it's no longer needed with Socket.IO
 
@@ -272,18 +273,7 @@ function App({ user, setUser }: AppProps) {
     }
   };
 
-  // Handle deposit - redirect to Paystack with prefilled amount
-  const handleDeposit = () => {
-    if (!depositAmount || Number(depositAmount) < 1) return;
-    
-    // Redirect to Paystack payment page with prefilled amount
-    const paystackUrl = `https://paystack.shop/pay/-gccg7xh6n?amount=${depositAmount}`;
-    window.open(paystackUrl, '_blank');
-    
-    // Close deposit modal
-    setShowDeposit(false);
-    setDepositAmount('');
-  };
+
 
   // Independent bet states for manual and auto betting
   const [manualBet, setManualBet] = useState<Bet | null>(null);
@@ -301,7 +291,6 @@ function App({ user, setUser }: AppProps) {
   const [showCrashUI, setShowCrashUI] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
-  const [depositAmount, setDepositAmount] = useState('');
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [crashPoint, setCrashPoint] = useState<number | null>(null);
@@ -3141,43 +3130,26 @@ function App({ user, setUser }: AppProps) {
         </div>
       </div>
 
-      {/* Deposit Modal/Page */}
+      {/* PayHero Payment Modal */}
       {showDeposit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
-          <div className="bg-zinc-900 rounded-2xl shadow-xl p-6 w-full max-w-xs mx-2 relative">
-            <button className="absolute top-2 right-2 text-zinc-400 hover:text-red-400 text-xl" onClick={() => setShowDeposit(false)}>&times;</button>
-            <h2 className="text-xl font-bold mb-4 text-green-400 text-center">Deposit Funds</h2>
-            <div className="mb-3 flex flex-wrap gap-2 justify-center">
-              {[50, 100, 200, 500, 1000].map((amt) => (
-                <button
-                  key={amt}
-                  className="bg-green-700 hover:bg-green-600 text-white font-semibold rounded-full px-4 py-2 text-sm shadow border border-green-800"
-                  onClick={() => setDepositAmount(amt.toString())}
-                >
-                  {amt} KES
-                </button>
-              ))}
-            </div>
-            <div className="mb-4">
-              <label className="block text-sm mb-1 text-zinc-300">Amount</label>
-              <input
-                type="number"
-                className="w-full px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-green-400"
-                placeholder="Enter amount"
-                value={depositAmount}
-                onChange={e => setDepositAmount(e.target.value)}
-                min={1}
-              />
-            </div>
-            <button
-              className="w-full bg-green-500 hover:bg-green-600 text-black font-bold py-2 rounded-full text-lg transition disabled:opacity-60"
-              onClick={handleDeposit}
-              disabled={!depositAmount || Number(depositAmount) < 1}
-            >
-              Deposit
-            </button>
-          </div>
-        </div>
+        <PayHeroPayment
+          onClose={() => setShowDeposit(false)}
+          userPhone={user?.phone} // Pass the logged-in user's phone number
+          onSuccess={(amount) => {
+            // Update user balance after successful payment
+            setUser((prev: any) => ({
+              ...prev,
+              balance: (prev.balance || 0) + amount
+            }));
+            setShowDeposit(false);
+            // Show success toast
+            toast({
+              title: "Payment Successful!",
+              description: `Your account has been credited with ${amount} KES`,
+              variant: "default",
+            });
+          }}
+        />
       )}
 
       {/* Withdraw Modal/Page */}
