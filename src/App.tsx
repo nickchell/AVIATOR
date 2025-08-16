@@ -724,15 +724,16 @@ function App({ user, setUser }: AppProps) {
 
   // Helper for weighted random bet amounts
   function getWeightedBetAmount() {
-    // Realistic bet amounts based on typical gambling behavior
+    // Realistic bet amounts based on typical Kenyan gambling behavior
     // Most people bet small amounts, few bet large amounts
     const betAmounts = [
-      10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000
+      10, 20, 25, 30, 40, 50, 60, 75, 80, 90, 100, 120, 150, 180, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1500, 1800, 2000, 2500, 3000, 4000, 5000, 7500, 10000
     ];
     
     // Weights: Heavy on small amounts, decreasing as amounts get larger
+    // More realistic distribution for Kenyan market
     const weights = [
-      25, 20, 15, 12, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 1.5, 1, 0.8, 0.6, 0.4, 0.3, 0.2, 0.15, 0.1, 0.05, 0.03, 0.02, 0.01, 0.005
+      30, 25, 20, 18, 15, 12, 10, 8, 7, 6, 5, 4, 3.5, 3, 2.5, 2, 1.8, 1.5, 1.2, 1, 0.8, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.12, 0.1, 0.08, 0.06, 0.04, 0.03, 0.02, 0.01
     ];
     
     const totalWeight = weights.reduce((a, b) => a + b, 0);
