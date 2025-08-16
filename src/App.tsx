@@ -243,15 +243,19 @@ function App({ user, setUser }: AppProps) {
         const multipliers: RecentMultiplier[] = data.roundMultipliers
           .map(([round, multiplier]: [number, number]) => {
             // Determine color based on multiplier value
-            let color = 'text-red-400';
-            if (multiplier >= 2 && multiplier < 5) {
-              color = 'text-green-400';
-            } else if (multiplier >= 5 && multiplier < 10) {
-              color = 'text-blue-400';
-            } else if (multiplier >= 10 && multiplier < 20) {
-              color = 'text-purple-400';
-            } else if (multiplier >= 20) {
-              color = 'text-pink-400';
+            let color = 'text-red-400'; // Default for crashes and very low multipliers
+            if (multiplier >= 1.01 && multiplier < 1.50) {
+              color = 'text-red-400';      // 🔴 Red A: 1.01x - 1.49x (≈30.9%)
+            } else if (multiplier >= 1.50 && multiplier < 2.00) {
+              color = 'text-orange-400';   // 🟠 Red B / Orange: 1.50x - 1.99x (≈15.9%)
+            } else if (multiplier >= 2.00 && multiplier < 4.00) {
+              color = 'text-green-400';    // 🟢 Green: 2.00x - 3.99x (≈24.2%)
+            } else if (multiplier >= 4.00 && multiplier < 8.00) {
+              color = 'text-blue-400';     // 🔵 Blue: 4.00x - 7.99x (≈12.1%)
+            } else if (multiplier >= 8.00 && multiplier < 20.00) {
+              color = 'text-purple-400';   // 🟣 Purple: 8.00x - 19.99x (≈7.3%)
+            } else if (multiplier >= 20.00) {
+              color = 'text-pink-400';     // 🩷 Pink: 20.00x and above (≈4.9%)
             }
             
             return {
@@ -407,7 +411,7 @@ function App({ user, setUser }: AppProps) {
 
 
 
-  // Manual cashout handler
+  // Manual cashout handler for manual bets
   const handleManualCashOut = () => {
     if (
       gamePhase === 'flying' &&
@@ -438,6 +442,43 @@ function App({ user, setUser }: AppProps) {
       // Show success toast
       toast({
         title: "Manual Cashout Successful!",
+        description: `Cashed out at ${currentMultiplier.toFixed(2)}x for ${winAmount} KES`,
+        duration: 3000,
+      });
+    }
+  };
+
+  // Manual cashout handler for auto bets
+  const handleAutoBetManualCashOut = () => {
+    if (
+      gamePhase === 'flying' &&
+      autoBet &&
+      !autoBet.cashedOut &&
+      crashPoint && currentMultiplier < crashPoint
+    ) {
+      const winAmount = Math.floor(autoBet.amount * currentMultiplier);
+      updateBalance(user.balance + winAmount);
+
+      const cashedOutBet = {
+        ...autoBet,
+        multiplier: currentMultiplier,
+        winAmount,
+        cashedOut: true,
+      };
+
+      setAutoBet(cashedOutBet);
+      setBets((prev: Bet[]) => prev.map(bet =>
+        bet.id === autoBet.id ? cashedOutBet : bet
+      ));
+      
+      // Update bet in database
+      if (autoBet.isUserBet) {
+        cashoutBetInDb(currentMultiplier, winAmount, 'auto');
+      }
+      
+      // Show success toast
+      toast({
+        title: "Auto Bet Manual Cashout Successful!",
         description: `Cashed out at ${currentMultiplier.toFixed(2)}x for ${winAmount} KES`,
         duration: 3000,
       });
@@ -2490,13 +2531,13 @@ function App({ user, setUser }: AppProps) {
                         autoBet && !autoBet.cashedOut ? (
                           gamePhase === 'flying' ? (
                             <button
-                              disabled
-                              className="w-full bg-gradient-to-r from-zinc-600 to-zinc-700 text-white font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg"
+                              onClick={handleAutoBetManualCashOut}
+                              className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold py-2 sm:py-4 rounded-xl transition-all duration-200 shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
                             >
-                              <div className="text-sm sm:text-lg">Auto Bet Active</div>
-                              <div className="text-xs sm:text-sm opacity-90">{autoBet.amount.toFixed(2)} KES</div>
+                              <div className="text-sm sm:text-lg">CASHOUT</div>
+                              <div className="text-xs sm:text-sm opacity-90">{(autoBet.amount * currentMultiplier).toFixed(2)} KES</div>
                               {autoBet.cashoutMultiplier && (
-                                <div className="text-xs opacity-75">Cashout at {autoBet.cashoutMultiplier.toFixed(1)}x</div>
+                                <div className="text-xs opacity-75">Auto at {autoBet.cashoutMultiplier.toFixed(1)}x</div>
                               )}
                             </button>
                           ) : (
