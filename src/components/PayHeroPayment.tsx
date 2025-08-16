@@ -41,10 +41,31 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
     if (name === 'customerName' && value.trim()) {
       localStorage.setItem('aviator_customer_name', value.trim());
     }
+
+    // Additional phone number validation for 01 format
+    if (name === 'phoneNumber') {
+      const phoneRegex = /^(07|01)\d{8}$/;
+      if (value && !phoneRegex.test(value)) {
+        // You can add visual feedback here if needed
+        console.log('Phone number format should be 07XXXXXXXX or 01XXXXXXXX');
+      }
+    }
+  };
+
+  const validatePhoneNumber = (phone: string): boolean => {
+    const phoneRegex = /^(07|01)\d{8}$/;
+    return phoneRegex.test(phone);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate phone number format
+    if (!validatePhoneNumber(formData.phoneNumber)) {
+      setError('Phone number must be in format 07XXXXXXXX or 01XXXXXXXX');
+      return;
+    }
+    
     setIsLoading(true);
     setError('');
     setIsSuccess(false);
@@ -237,7 +258,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
               </div>
               <p className="text-xs text-zinc-500 mt-1 flex items-center">
                 <span className="w-1 h-1 bg-blue-400 rounded-full mr-1"></span>
-                Enter your registered phone number
+                Enter your registered phone number (07XXXXXXXX or 01XXXXXXXX)
               </p>
             </div>
 

@@ -23,7 +23,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
   // Check if phone is registered when 10 digits are entered
   useEffect(() => {
     const checkRegistered = async () => {
-      if (phone.length === 10 && /^07\d{8}$/.test(phone)) {
+      if (phone.length === 10 && /^(07|01)\d{8}$/.test(phone)) {
         const { data: existingUser } = await supabase
           .from('users')
           .select('id')
@@ -38,8 +38,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
   }, [phone]);
 
   const handleContinue = async () => {
-    if (!/^07\d{8}$/.test(phone)) {
-      setError('Please enter a valid Kenyan phone number (07XXXXXXXX)');
+    if (!/^(07|01)\d{8}$/.test(phone)) {
+      setError('Please enter a valid Kenyan phone number (07XXXXXXXX or 01XXXXXXXX)');
       return;
     }
     if (!/^\d{4,6}$/.test(pin)) {
@@ -175,7 +175,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlayNow }) => {
               <input
                 type="tel"
                 className="w-full px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                placeholder="07XXXXXXXX"
+                placeholder="07XXXXXXXX or 01XXXXXXXX"
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
                 maxLength={10}
