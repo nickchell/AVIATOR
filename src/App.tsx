@@ -1895,18 +1895,16 @@ function App({ user, setUser }: AppProps) {
       toast({
         // Use a custom JSX element for the toast content
         description: (
-          <div className="flex items-center justify-between bg-gradient-to-r from-green-500 via-green-600 to-emerald-600 rounded-2xl px-4 sm:px-6 py-3 sm:py-4 w-full min-w-[140px] sm:min-w-[160px] max-w-[220px] sm:max-w-[240px] shadow-2xl border-2 border-green-400/30 backdrop-blur-sm animate-pulse">
+          <div className="flex items-center justify-between bg-green-900 rounded-2xl px-4 py-3 w-full min-w-[280px] max-w-[320px] shadow-lg border border-green-800">
             <div className="flex flex-col items-start">
-              <div className="flex items-center gap-2 mb-1">
-                <svg className="w-4 h-4 text-yellow-300 animate-bounce" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span className="text-[10px] sm:text-xs text-white/90 font-medium">Cashed out</span>
-              </div>
-              <span className="text-lg sm:text-xl font-bold text-white drop-shadow-lg">{manualBet.multiplier?.toFixed(2)}x</span>
+              <span className="text-xs text-white/80 mb-1">You have cashed out!</span>
+              <span className="text-lg font-bold text-white">{manualBet.multiplier?.toFixed(2)}x</span>
             </div>
-            <div className="ml-3 sm:ml-4 flex items-center">
-              <span className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-black rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-bold shadow-lg border border-yellow-300/50 animate-pulse">+{manualBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} KES</span>
+            <div className="flex items-center">
+              <div className="bg-green-400 rounded-xl px-3 py-2 text-center">
+                <div className="text-xs text-white/90 mb-1">Win KES</div>
+                <div className="text-sm font-bold text-white">{manualBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              </div>
             </div>
           </div>
         ),
@@ -1921,18 +1919,16 @@ function App({ user, setUser }: AppProps) {
       toast({
         // Use a custom JSX element for the toast content
         description: (
-          <div className="flex items-center justify-between bg-gradient-to-r from-green-500 via-green-600 to-emerald-600 rounded-2xl px-4 sm:px-6 py-3 sm:py-4 w-full min-w-[140px] sm:min-w-[160px] max-w-[220px] sm:max-w-[240px] shadow-2xl border-2 border-green-400/30 backdrop-blur-sm animate-pulse">
+          <div className="flex items-center justify-between bg-green-900 rounded-2xl px-4 py-3 w-full min-w-[280px] max-w-[320px] shadow-lg border border-green-800">
             <div className="flex flex-col items-start">
-              <div className="flex items-center gap-2 mb-1">
-                <svg className="w-4 h-4 text-yellow-300 animate-bounce" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span className="text-[10px] sm:text-xs text-white/90 font-medium">Cashed out</span>
-              </div>
-              <span className="text-lg sm:text-xl font-bold text-white drop-shadow-lg">{autoBet.multiplier?.toFixed(2)}x</span>
+              <span className="text-xs text-white/80 mb-1">You have cashed out!</span>
+              <span className="text-lg font-bold text-white">{autoBet.multiplier?.toFixed(2)}x</span>
             </div>
-            <div className="ml-3 sm:ml-4 flex items-center">
-              <span className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-black rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-bold shadow-lg border border-yellow-300/50 animate-pulse">+{autoBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} KES</span>
+            <div className="flex items-center">
+              <div className="bg-green-400 rounded-xl px-3 py-2 text-center">
+                <div className="text-xs text-white/90 mb-1">Win KES</div>
+                <div className="text-sm font-bold text-white">{autoBet.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              </div>
             </div>
           </div>
         ),
@@ -1948,18 +1944,16 @@ function App({ user, setUser }: AppProps) {
       toast({
         // Use a custom JSX element for the toast content
         description: (
-          <div className="flex items-center justify-between bg-gradient-to-r from-green-500 via-green-600 to-emerald-600 rounded-2xl px-4 sm:px-6 py-3 sm:py-4 w-full min-w-[140px] sm:min-w-[160px] max-w-[220px] sm:max-w-[240px] shadow-2xl border-2 border-green-400/30 backdrop-blur-sm animate-pulse">
+          <div className="flex items-center justify-between bg-green-900 rounded-2xl px-4 py-3 w-full min-w-[280px] max-w-[320px] shadow-lg border border-green-800">
             <div className="flex flex-col items-start">
-              <div className="flex items-center gap-2 mb-1">
-                <svg className="w-4 h-4 text-yellow-300 animate-bounce" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span className="text-[10px] sm:text-xs text-white/90 font-medium">Cashed out</span>
-              </div>
-              <span className="text-lg sm:text-xl font-bold text-white drop-shadow-lg">{manualBet2.multiplier?.toFixed(2)}x</span>
+              <span className="text-xs text-white/80 mb-1">You have cashed out!</span>
+              <span className="text-lg font-bold text-white">{manualBet2.multiplier?.toFixed(2)}x</span>
             </div>
-            <div className="ml-3 sm:ml-4 flex items-center">
-              <span className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-black rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-bold shadow-lg border border-yellow-300/50 animate-pulse">+{manualBet2.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} KES</span>
+            <div className="flex items-center">
+              <div className="bg-green-400 rounded-xl px-3 py-2 text-center">
+                <div className="text-xs text-white/90 mb-1">Win KES</div>
+                <div className="text-sm font-bold text-white">{manualBet2.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              </div>
             </div>
           </div>
         ),
@@ -1974,18 +1968,16 @@ function App({ user, setUser }: AppProps) {
       toast({
         // Use a custom JSX element for the toast content
         description: (
-          <div className="flex items-center justify-between bg-gradient-to-r from-green-500 via-green-600 to-emerald-600 rounded-2xl px-4 sm:px-6 py-3 sm:py-4 w-full min-w-[140px] sm:min-w-[160px] max-w-[220px] sm:max-w-[240px] shadow-2xl border-2 border-green-400/30 backdrop-blur-sm animate-pulse">
+          <div className="flex items-center justify-between bg-green-900 rounded-2xl px-4 py-3 w-full min-w-[280px] max-w-[320px] shadow-lg border border-green-800">
             <div className="flex flex-col items-start">
-              <div className="flex items-center gap-2 mb-1">
-                <svg className="w-4 h-4 text-yellow-300 animate-bounce" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span className="text-[10px] sm:text-xs text-white/90 font-medium">Cashed out</span>
-              </div>
-              <span className="text-lg sm:text-xl font-bold text-white drop-shadow-lg">{autoBet2.multiplier?.toFixed(2)}x</span>
+              <span className="text-xs text-white/80 mb-1">You have cashed out!</span>
+              <span className="text-lg font-bold text-white">{autoBet2.multiplier?.toFixed(2)}x</span>
             </div>
-            <div className="ml-3 sm:ml-4 flex items-center">
-              <span className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-black rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-bold shadow-lg border border-yellow-300/50 animate-pulse">+{autoBet2.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} KES</span>
+            <div className="flex items-center">
+              <div className="bg-green-400 rounded-xl px-3 py-2 text-center">
+                <div className="text-xs text-white/90 mb-1">Win KES</div>
+                <div className="text-sm font-bold text-white">{autoBet2.winAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              </div>
             </div>
           </div>
         ),
