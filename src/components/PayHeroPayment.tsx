@@ -229,8 +229,8 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
                   value={formData.phoneNumber}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-600/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50 transition-all duration-300 backdrop-blur-sm group-hover:border-zinc-500/70"
-                  placeholder="07XXXXXXXX"
-                  pattern="^07\d{8}$"
+                  placeholder="07XXXXXXXX or 01XXXXXXXX"
+                  pattern="^(07|01)\d{8}$"
                   required
                 />
                 <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-500/0 via-green-500/5 to-yellow-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
