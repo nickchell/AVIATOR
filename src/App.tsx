@@ -3198,7 +3198,7 @@ function App({ user, setUser }: AppProps) {
               <input
                 type="number"
                 className="w-full px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                placeholder="Enter amount (min 500)"
+                placeholder="Enter amount"
                 value={withdrawAmount}
                 onChange={e => setWithdrawAmount(e.target.value)}
                 min={500}
@@ -3207,7 +3207,15 @@ function App({ user, setUser }: AppProps) {
             </div>
             <button
               className="w-full bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 rounded-full text-lg transition disabled:opacity-60"
-              // onClick={handleWithdraw} // Add withdraw logic here
+              onClick={() => {
+                console.log('Withdraw button clicked - showing error toast');
+                toast({
+                  title: "Error",
+                  description: "An error occurred, try again shortly",
+                  variant: "destructive",
+                  duration: 3000,
+                });
+              }}
               disabled={!withdrawAmount || Number(withdrawAmount) < 500 || Number(withdrawAmount) > user.balance}
             >
               Withdraw

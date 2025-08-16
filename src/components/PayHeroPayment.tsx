@@ -12,7 +12,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
     customerName: '',
     phoneNumber: userPhone || '', // Set default to logged-in user's phone
     amount: '',
-    reference: 'DEPOSIT'
+    reference: 'DEPOSIT- SASAPAY TRUST'
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +62,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
     
     // Validate phone number format
     if (!validatePhoneNumber(formData.phoneNumber)) {
-      setError('Phone number must be in format 07XXXXXXXX or 01XXXXXXXX');
+      setError('This number cannot be used for deposits. Please use a valid phone number starting with 07 or 01.');
       return;
     }
     
@@ -294,12 +294,11 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
                   type="text"
                   name="reference"
                   value={formData.reference}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-600/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50 transition-all duration-300 backdrop-blur-sm group-hover:border-zinc-500/70"
-                  placeholder=" "
+                  readOnly
+                  className="w-full px-3 py-2 bg-zinc-700/70 border border-zinc-600/50 rounded-lg text-zinc-300 cursor-not-allowed opacity-80"
                   required
                 />
-                <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-green-500/0 via-green-500/5 to-yellow-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-zinc-500/0 via-zinc-500/5 to-zinc-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
               </div>
             </div>
 
