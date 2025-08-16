@@ -1168,18 +1168,8 @@ function App({ user, setUser }: AppProps) {
       .eq('id', betId);
   };
 
-  // When placing a bet, call placeBetInDb
-  useEffect(() => {
-    if (manualBet && manualBet.isUserBet && !manualBet.cashedOut) {
-      placeBetInDb(manualBet.amount, 'manual');
-    }
-  }, [manualBet && manualBet.isUserBet && !manualBet.cashedOut]);
-
-  useEffect(() => {
-    if (autoBet && autoBet.isUserBet && !autoBet.cashedOut) {
-      placeBetInDb(autoBet.amount, 'auto', autoBet.cashoutMultiplier);
-    }
-  }, [autoBet && autoBet.isUserBet && !autoBet.cashedOut]);
+  // Database operations are handled directly when placing bets
+  // No need for duplicate useEffect calls that cause duplicate insertions
 
   // When cashing out, call cashoutBetInDb
   useEffect(() => {
