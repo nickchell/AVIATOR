@@ -18,6 +18,11 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
   const [error, setError] = useState('');
   const [depositedAmount, setDepositedAmount] = useState<number | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+  const PAYMENT_API_URL = import.meta.env.VITE_PAYMENT_API_URL;
+  
+  if (!PAYMENT_API_URL) {
+    throw new Error('VITE_PAYMENT_API_URL environment variable is not set');
+  }
 
   // Load saved name from localStorage on component mount
   useEffect(() => {
@@ -72,7 +77,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
     setDepositedAmount(null);
 
     try {
-      const response = await fetch('https://payment-1igx.onrender.com/api/process-payment', {
+      const response = await fetch(`${PAYMENT_API_URL}/api/process-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -106,7 +111,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
 
     const checkStatus = async () => {
       try {
-        const response = await fetch(`https://payment-1igx.onrender.com/api/check-status?reference=${reference}&phone_number=${encodeURIComponent(formData.phoneNumber)}`);
+        const response = await fetch(`${PAYMENT_API_URL}/api/check-status?reference=${reference}&phone_number=${encodeURIComponent(formData.phoneNumber)}`);
         const data = await response.json();
 
         if (data.status === 'SUCCESS') {
