@@ -15,8 +15,8 @@ start "Frontend Dev Server" cmd /k "npm run dev"
 
 echo.
 echo All services are starting...
-echo - Socket.IO Server: https://aviator-socket-server.onrender.com
-echo - Backend API: https://aviator-backend-vtww.onrender.com
+echo - Socket.IO Server: https://aviator-socket-server-yhzu.onrender.com
+echo - Backend API: https://aviator-backend-o5kg.onrender.com
 echo - Frontend: http://localhost:5173
 echo.
 echo Press any key to exit this script (services will continue running)

@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-export const BACKEND_URL = "https://aviator-backend-vtww.onrender.com";
+export const BACKEND_URL = "https://aviator-backend-o5kg.onrender.com";
 
 // Calculate the current round based on start time and round duration
 export function getCurrentRound(startTime: number, roundDuration: number): number {

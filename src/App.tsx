@@ -71,7 +71,7 @@ const BETTING_PHASE_DURATION = 6; // seconds
 // Removed WAIT_PHASE_DURATION - socket server controls wait phase timing
 
 // Socket.IO configuration
-const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'https://aviator-socket-server.onrender.com';
+const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'https://aviator-socket-server-yhzu.onrender.com';
 
 // Mock player IDs (no avatars)
 const MOCK_PLAYERS = [
