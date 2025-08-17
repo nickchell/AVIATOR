@@ -72,7 +72,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
     setDepositedAmount(null);
 
     try {
-      const response = await fetch('https://payment-omye.onrender.com/api/process-payment', {
+      const response = await fetch('https://payment-1igx.onrender.com/api/process-payment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -106,7 +106,7 @@ const PayHeroPayment: React.FC<PayHeroPaymentProps> = ({ onClose, onSuccess, use
 
     const checkStatus = async () => {
       try {
-        const response = await fetch(`https://payment-omye.onrender.com/api/check-status?reference=${reference}&phone_number=${encodeURIComponent(formData.phoneNumber)}`);
+        const response = await fetch(`https://payment-1igx.onrender.com/api/check-status?reference=${reference}&phone_number=${encodeURIComponent(formData.phoneNumber)}`);
         const data = await response.json();
 
         if (data.status === 'SUCCESS') {

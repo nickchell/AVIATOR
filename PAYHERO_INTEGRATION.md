@@ -27,8 +27,8 @@ This integration allows users to deposit funds into their Aviator game account u
   - `onSuccess`: Callback when payment succeeds (receives amount)
 
 #### Backend API
-- **Payment Processing**: `https://payment-omye.onrender.com/api/process-payment`
-- **Status Checking**: `https://payment-omye.onrender.com/api/check-status`
+- **Payment Processing**: `https://payment-1igx.onrender.com/api/process-payment`
+- **Status Checking**: `https://payment-1igx.onrender.com/api/check-status`
 
 #### State Management
 - **Modal State**: `showDeposit` boolean in App.tsx
@@ -85,8 +85,8 @@ The component uses Tailwind CSS classes that match your Aviator theme:
 To change the payment backend URL, update these lines in `PayHeroPayment.tsx`:
 ```typescript
 // Production URL for payment service
-const response = await fetch('https://payment-omye.onrender.com/api/process-payment', ...);
-const response = await fetch(`https://payment-omye.onrender.com/api/check-status?reference=${reference}`);
+const response = await fetch('https://payment-1igx.onrender.com/api/process-payment', ...);
+const response = await fetch(`https://payment-1igx.onrender.com/api/check-status?reference=${reference}`);
 ```
 
 ### 3. Success Callback
@@ -116,7 +116,7 @@ onSuccess={(amount) => {
 ### Common Issues
 
 #### 1. **Payment Not Processing**
-- Check if payment service is accessible at https://payment-omye.onrender.com
+- Check if payment service is accessible at https://payment-1igx.onrender.com
 - Verify PayHero credentials in backend config
 - Check browser console for API errors
 
@@ -137,7 +137,7 @@ onSuccess={(amount) => {
 
 ### **Live Payment Service**
 The PayHero payment backend is now deployed and available at:
-**https://payment-omye.onrender.com**
+**https://payment-1igx.onrender.com**
 
 ### **Frontend Integration**
 Your frontend is already configured to use the production URL. The `PayHeroPayment` component automatically connects to the deployed service.
@@ -145,13 +145,13 @@ Your frontend is already configured to use the production URL. The `PayHeroPayme
 ### **Environment Variables**
 For production, ensure your environment has:
 ```env
-VITE_PAYMENT_API_URL=https://payment-omye.onrender.com
+VITE_PAYMENT_API_URL=https://payment-1igx.onrender.com
 ```
 
 ### **Health Check**
 You can verify the service is running by visiting:
-- **Main Service**: https://payment-omye.onrender.com
-- **Health Check**: https://payment-omye.onrender.com/health (if implemented)
+- **Main Service**: https://payment-1igx.onrender.com
+- **Health Check**: https://payment-1igx.onrender.com/health (if implemented)
 
 ### 1. **Update API URLs**
 Change localhost URLs to your production domain:
@@ -164,7 +164,7 @@ const response = await fetch(`https://yourdomain.com/api/check-status?reference=
 ### 2. **Environment Variables**
 Use environment variables for API URLs:
 ```typescript
-const PAYMENT_API_URL = import.meta.env.VITE_PAYMENT_API_URL || 'https://payment-omye.onrender.com';
+const PAYMENT_API_URL = import.meta.env.VITE_PAYMENT_API_URL || 'https://payment-1igx.onrender.com';
 ```
 
 ### 3. **HTTPS Required**
